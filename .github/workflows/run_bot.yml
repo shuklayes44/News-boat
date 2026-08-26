@@ -1,0 +1,27 @@
+name: Run News Bot
+
+on:
+  schedule:
+    # Har 4 ghante me automatic run hoga
+    - cron: '0 */4 * * *'
+  workflow_dispatch: # Manual Run Button ke liye
+
+jobs:
+  run-python-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Main Script
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python main.py
