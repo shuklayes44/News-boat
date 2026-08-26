@@ -17,13 +17,12 @@ def generate_ai_post(news_title):
         print("Error: GEMINI_API_KEY secret not found in environment!")
         return None
 
-    # New Client Setup
     client = genai.Client(api_key=api_key)
     prompt = f"Write a short engaging tweet with 2 hashtags for this news: {news_title}"
 
-    # Model Name strictly 'gemini-2.5-flash'
+    # Google Error Solution: Updated to gemini-3.6-flash
     response = client.models.generate_content(
-        model='gemini-2.5-flash',
+        model='gemini-3.6-flash',
         contents=prompt
     )
     return response.text
