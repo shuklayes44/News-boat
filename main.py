@@ -10,19 +10,20 @@ def get_latest_news():
         return feed.entries[0].title
     return None
 
-# 2. Stable Gemini SDK Generator
+# 2. Latest Google GenAI SDK Summarizer
 def generate_ai_post(news_title):
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         print("Error: GEMINI_API_KEY secret not found in environment!")
         return None
 
+    # New Client Setup
     client = genai.Client(api_key=api_key)
     prompt = f"Write a short engaging tweet with 2 hashtags for this news: {news_title}"
 
-    # Official Standard Gemini Flash Model
+    # Model Name strictly 'gemini-2.5-flash'
     response = client.models.generate_content(
-        model='gemini-1.5-flash-latest',
+        model='gemini-2.5-flash',
         contents=prompt
     )
     return response.text
