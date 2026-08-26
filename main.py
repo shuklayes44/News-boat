@@ -1,4 +1,4 @@
-import os
+hereimport os
 import feedparser
 from google import genai
 
@@ -10,20 +10,19 @@ def get_latest_news():
         return feed.entries[0].title
     return None
 
-# 2. Latest Google GenAI SDK Summarizer
+# 2. Stable Gemini SDK Generator
 def generate_ai_post(news_title):
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         print("Error: GEMINI_API_KEY secret not found in environment!")
         return None
 
-    # New SDK Client Setup
     client = genai.Client(api_key=api_key)
     prompt = f"Write a short engaging tweet with 2 hashtags for this news: {news_title}"
 
-    # Stable Gemini Model
+    # Official Standard Gemini Flash Model
     response = client.models.generate_content(
-        model='gemini-2.5-flash',
+        model='gemini-1.5-flash-latest',
         contents=prompt
     )
     return response.text
