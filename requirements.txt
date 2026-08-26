@@ -1,0 +1,6 @@
+feedparser
+google-generativeai
+Pillow
+tweepy
+instagrapi
+requests
