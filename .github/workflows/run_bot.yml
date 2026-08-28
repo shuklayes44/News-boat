@@ -2,6 +2,7 @@ name: Run News Bot
 
 on:
   schedule:
+    # Har 4 ghante mein automatic run hoga
     - cron: '0 */4 * * *'
   workflow_dispatch:
 
@@ -23,4 +24,9 @@ jobs:
       - name: Run Main Script
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TWITTER_USERNAME: ${{ secrets.TWITTER_USERNAME }}
+          TWITTER_PASSWORD: ${{ secrets.TWITTER_PASSWORD }}
+          TWITTER_EMAIL: ${{ secrets.TWITTER_EMAIL }}
+          INSTA_USERNAME: ${{ secrets.INSTA_USERNAME }}
+          INSTA_PASSWORD: ${{ secrets.INSTA_PASSWORD }}
         run: python main.py
