@@ -1,6 +1,6 @@
 feedparser
 google-genai
 Pillow
-tweepy
+twikit
 instagrapi
 requests
