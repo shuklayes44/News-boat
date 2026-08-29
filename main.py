@@ -11,7 +11,6 @@ def generate_news_with_gemini():
         return None
 
     try:
-        # Latest Google GenAI Client
         client = genai.Client(api_key=GEMINI_API_KEY)
         
         prompt = (
@@ -20,8 +19,9 @@ def generate_news_with_gemini():
             "Keep it plain text."
         )
 
+        # Gemini 3.6-flash model update
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.6-flash',
             contents=prompt,
         )
         return response.text
@@ -40,7 +40,7 @@ def send_to_buffer_graphql(post_text):
         "Content-Type": "application/json"
     }
     
-    # Fetch Channels
+    # 1. Fetch Connected Channels
     channels_query = {
         "query": """
         query GetChannels {
@@ -70,10 +70,10 @@ def send_to_buffer_graphql(post_text):
 
     channel_ids = [c["id"] for c in orgs[0].get("channels", [])]
     if not channel_ids:
-        print("Error: Connected Channels nahi mile!")
+        print("Error: Connected Channels nahi melein!")
         return
 
-    # Post Mutation
+    # 2. Post Mutation
     mutation = """
     mutation CreatePost($channelId: String!, $text: String!) {
         createPost(channelId: $channelId, text: $text, mode: NOW) {
