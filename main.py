@@ -60,7 +60,7 @@ def send_to_buffer_graphql(post_text):
 
     org_id = orgs[0].get("id")
 
-    # 2. Fetch Connected Channels
+    # 2. Fetch Channels
     channels_query = {
         "query": """
         query GetChannels($input: ChannelsInput!) {
@@ -81,12 +81,14 @@ def send_to_buffer_graphql(post_text):
     ch_data = ch_res.json()
     channels = ch_data.get("data", {}).get("channels", [])
 
-    # 3. Validated Buffer CreatePost Mutation
+    # 3. Correct Post Mutation with Fragment Handling
     mutation = """
     mutation CreatePost($input: CreatePostInput!) {
         createPost(input: $input) {
-            post {
-                id
+            ... on PostActionSuccess {
+                post {
+                    id
+                }
             }
         }
     }
