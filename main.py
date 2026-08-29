@@ -1,32 +1,29 @@
 import os
 import requests
-import google.generativeai as genai
+from google import genai
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 BUFFER_ACCESS_TOKEN = os.getenv("BUFFER_ACCESS_TOKEN")
 
 def generate_news_with_gemini():
     if not GEMINI_API_KEY:
-        print("Error: GEMINI_API_KEY Missing hai Secrets me!")
+        print("Error: GEMINI_API_KEY Missing hai!")
         return None
 
     try:
-        # Standard stable Gemini Setup
-        genai.configure(api_key=GEMINI_API_KEY)
-        
-        # Latest supported model
-        try:
-            model = genai.GenerativeModel('gemini-1.5-flash')
-        except:
-            model = genai.GenerativeModel('gemini-3.6-flash')
+        # Latest Google GenAI Client
+        client = genai.Client(api_key=GEMINI_API_KEY)
         
         prompt = (
-            "Write a short, engaging viral social media post about recent AI or Technology news. "
-            "Include an eye-catching headline with emojis, 2 key bullet points, and trending hashtags like #TechNews #AI #Technology. "
-            "Keep the output clean so it can be posted directly."
+            "Write a short, engaging social media post about recent tech news. "
+            "Include an emoji headline, 2 key bullet points, and popular hashtags like #TechNews #AI. "
+            "Keep it plain text."
         )
 
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
         return response.text
     except Exception as e:
         print("Gemini API Error:", e)
@@ -34,7 +31,7 @@ def generate_news_with_gemini():
 
 def send_to_buffer_graphql(post_text):
     if not BUFFER_ACCESS_TOKEN:
-        print("Error: BUFFER_ACCESS_TOKEN Missing hai Secrets me!")
+        print("Error: BUFFER_ACCESS_TOKEN Missing!")
         return
 
     url = "https://api.buffer.com/graphql"
@@ -43,7 +40,7 @@ def send_to_buffer_graphql(post_text):
         "Content-Type": "application/json"
     }
     
-    # Connected Channels Fetch
+    # Fetch Channels
     channels_query = {
         "query": """
         query GetChannels {
@@ -68,15 +65,15 @@ def send_to_buffer_graphql(post_text):
         
     orgs = res_data.get("data", {}).get("account", {}).get("organizations", [])
     if not orgs:
-        print("Error: Buffer Organization nahi mili!")
+        print("Error: Buffer Organization Missing!")
         return
 
     channel_ids = [c["id"] for c in orgs[0].get("channels", [])]
     if not channel_ids:
-        print("Error: Buffer Dashboard me connected channels nahi melein!")
+        print("Error: Connected Channels nahi mile!")
         return
 
-    # Post Publish Mutation
+    # Post Mutation
     mutation = """
     mutation CreatePost($channelId: String!, $text: String!) {
         createPost(channelId: $channelId, text: $text, mode: NOW) {
@@ -96,12 +93,12 @@ def send_to_buffer_graphql(post_text):
             }
         }
         post_res = requests.post(url, json=payload, headers=headers)
-        print(f"Post Sent Result for Channel {ch_id}:", post_res.text)
+        print(f"Post Sent Result for {ch_id}:", post_res.text)
 
 if __name__ == "__main__":
     text = generate_news_with_gemini()
     if text:
-        print("News generated via Gemini AI! Sending to Buffer GraphQL...")
+        print("News generated via Gemini AI! Sending to Buffer...")
         send_to_buffer_graphql(text)
     else:
         print("News generation failed!")
