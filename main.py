@@ -1,6 +1,6 @@
 import os
 import requests
-from google import genai
+import google.generativeai as genai
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 BUFFER_ACCESS_TOKEN = os.getenv("BUFFER_ACCESS_TOKEN")
@@ -11,20 +11,22 @@ def generate_news_with_gemini():
         return None
 
     try:
-        # SDK Client Init
-        client = genai.Client(api_key=GEMINI_API_KEY)
+        # Standard stable Gemini Setup
+        genai.configure(api_key=GEMINI_API_KEY)
+        
+        # Latest supported model
+        try:
+            model = genai.GenerativeModel('gemini-1.5-flash')
+        except:
+            model = genai.GenerativeModel('gemini-3.6-flash')
         
         prompt = (
-            "Write a short, viral social media post about recent AI or Technology news. "
-            "Include an emoji headline, 2 key bullet points, and popular hashtags like #Tech #AI. "
-            "Do not add any intros or explanations."
+            "Write a short, engaging viral social media post about recent AI or Technology news. "
+            "Include an eye-catching headline with emojis, 2 key bullet points, and trending hashtags like #TechNews #AI #Technology. "
+            "Keep the output clean so it can be posted directly."
         )
 
-        # Standard clean call for standard text generation
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt
-        )
+        response = model.generate_content(prompt)
         return response.text
     except Exception as e:
         print("Gemini API Error:", e)
@@ -41,7 +43,7 @@ def send_to_buffer_graphql(post_text):
         "Content-Type": "application/json"
     }
     
-    # 1. Connected Channels Fetch
+    # Connected Channels Fetch
     channels_query = {
         "query": """
         query GetChannels {
@@ -71,10 +73,10 @@ def send_to_buffer_graphql(post_text):
 
     channel_ids = [c["id"] for c in orgs[0].get("channels", [])]
     if not channel_ids:
-        print("Error: Buffer Dashboard me connected channels nahi mele!")
+        print("Error: Buffer Dashboard me connected channels nahi melein!")
         return
 
-    # 2. Post Create Mutation
+    # Post Publish Mutation
     mutation = """
     mutation CreatePost($channelId: String!, $text: String!) {
         createPost(channelId: $channelId, text: $text, mode: NOW) {
