@@ -19,7 +19,6 @@ def generate_news_with_gemini():
             "Keep it plain text."
         )
 
-        # Gemini 3.6-flash model update
         response = client.models.generate_content(
             model='gemini-3.6-flash',
             contents=prompt,
@@ -40,17 +39,14 @@ def send_to_buffer_graphql(post_text):
         "Content-Type": "application/json"
     }
     
-    # 1. Fetch Connected Channels
+    # Direct Channels Query (Bypasses Organization Level Forbidden Error)
     channels_query = {
         "query": """
-        query GetChannels {
-            account {
-                organizations {
-                    channels {
-                        id
-                        service
-                    }
-                }
+        query GetUserChannels {
+            channels {
+                id
+                name
+                service
             }
         }
         """
@@ -63,17 +59,12 @@ def send_to_buffer_graphql(post_text):
         print("Buffer GraphQL Error:", res_data["errors"])
         return
         
-    orgs = res_data.get("data", {}).get("account", {}).get("organizations", [])
-    if not orgs:
-        print("Error: Buffer Organization Missing!")
+    channels = res_data.get("data", {}).get("channels", [])
+    if not channels:
+        print("Error: Buffer Dashboard me connected channels nahi mile!")
         return
 
-    channel_ids = [c["id"] for c in orgs[0].get("channels", [])]
-    if not channel_ids:
-        print("Error: Connected Channels nahi melein!")
-        return
-
-    # 2. Post Mutation
+    # Post Publish Mutation
     mutation = """
     mutation CreatePost($channelId: String!, $text: String!) {
         createPost(channelId: $channelId, text: $text, mode: NOW) {
@@ -84,7 +75,8 @@ def send_to_buffer_graphql(post_text):
     }
     """
     
-    for ch_id in channel_ids:
+    for ch in channels:
+        ch_id = ch.get("id")
         payload = {
             "query": mutation,
             "variables": {
@@ -93,7 +85,7 @@ def send_to_buffer_graphql(post_text):
             }
         }
         post_res = requests.post(url, json=payload, headers=headers)
-        print(f"Post Sent Result for {ch_id}:", post_res.text)
+        print(f"Post Sent Result for Channel {ch.get('service')} ({ch_id}):", post_res.text)
 
 if __name__ == "__main__":
     text = generate_news_with_gemini()
