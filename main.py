@@ -81,7 +81,7 @@ def send_to_buffer_graphql(post_text):
     ch_data = ch_res.json()
     channels = ch_data.get("data", {}).get("channels", [])
 
-    # 3. Correct Post Mutation with Fragment Handling
+    # 3. Correct Post Mutation with valid schedulingType enum
     mutation = """
     mutation CreatePost($input: CreatePostInput!) {
         createPost(input: $input) {
@@ -102,7 +102,7 @@ def send_to_buffer_graphql(post_text):
                 "input": {
                     "channelId": ch_id,
                     "text": post_text,
-                    "mode": "NOW"
+                    "schedulingType": "shareNow"
                 }
             }
         }
