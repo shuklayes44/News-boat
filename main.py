@@ -52,7 +52,6 @@ def send_to_buffer_graphql(post_text):
     
     acc_res = requests.post(url, json=account_query, headers=headers)
     acc_data = acc_res.json()
-    
     orgs = acc_data.get("data", {}).get("account", {}).get("organizations", [])
     if not orgs:
         print("Error: Organization nahi mili!", acc_data)
@@ -82,42 +81,43 @@ def send_to_buffer_graphql(post_text):
     channels = ch_data.get("data", {}).get("channels", [])
 
     if not channels:
-        print("Error: Koi Channels nahi mile!", ch_data)
+        print("Error: Channels nahi mile!", ch_data)
         return
 
-    # 3. Exact Buffer CreatePost Mutation with ShareMode
-    mutation = """
-    mutation CreatePost($input: CreatePostInput!) {
-        createPost(input: $input) {
-            ... on PostActionSuccess {
-                post {
-                    id
-                }
-            }
-        }
-    }
-    """
-    
+    # 3. Direct Inline Mutation (Buffer Official GraphQL Standard)
     for ch in channels:
         ch_id = ch.get("id")
-        payload = {
-            "query": mutation,
-            "variables": {
-                "input": {
-                    "channelId": ch_id,
-                    "text": post_text,
-                    "mode": "shareNow",
-                    "schedulingType": "automatic"
-                }
-            }
-        }
-        post_res = requests.post(url, json=payload, headers=headers)
-        print(f"Post Sent Result for {ch.get('service')} ({ch_id}):", post_res.text)
+        service = ch.get("service")
+        
+        # Buffer expects raw enum 'shareNow' and 'automatic'
+        mutation = f"""
+        mutation {{
+            createPost(input: {{
+                channelId: "{ch_id}",
+                text: {requests.compat.json.dumps(post_text)},
+                schedulingType: automatic,
+                mode: shareNow
+            }}) {{
+                ... on PostActionSuccess {{
+                    post {{
+                        id
+                        status
+                    }}
+                }}
+                ... on MutationError {{
+                    message
+                }}
+            }}
+        }}
+        """
+        
+        post_res = requests.post(url, json={"query": mutation}, headers=headers)
+        print(f"Result for {service} ({ch_id}):", post_res.text)
 
 if __name__ == "__main__":
     text = generate_news_with_gemini()
     if text:
-        print("News generated via Gemini AI! Sending to Buffer GraphQL...")
+        print("News generated via Gemini AI! Sending to Buffer...")
         send_to_buffer_graphql(text)
     else:
         print("News generation failed!")
