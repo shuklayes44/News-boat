@@ -19,8 +19,9 @@ def generate_news_with_gemini():
             "Keep the output clean so it can be posted directly."
         )
 
+        # Fix: Using valid stable model gemini-1.5-flash
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-1.5-flash',
             contents=prompt,
         )
         return response.text
