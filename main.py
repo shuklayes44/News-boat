@@ -85,7 +85,7 @@ def send_to_buffer_graphql(post_text):
         print("Error: Koi Channels nahi mile!", ch_data)
         return
 
-    # 3. Valid GraphQL Mutation payload (No dynamic mode enum issues)
+    # 3. Exact Buffer CreatePost Mutation with ShareMode
     mutation = """
     mutation CreatePost($input: CreatePostInput!) {
         createPost(input: $input) {
@@ -106,6 +106,7 @@ def send_to_buffer_graphql(post_text):
                 "input": {
                     "channelId": ch_id,
                     "text": post_text,
+                    "mode": "shareNow",
                     "schedulingType": "automatic"
                 }
             }
