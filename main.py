@@ -12,11 +12,11 @@ def generate_news_with_gemini():
 
     try:
         client = genai.Client(api_key=GEMINI_API_KEY)
-        # Indian English + strict length limit
+        # Indian English + 200-230 characters range
         prompt = (
             "Write a short, engaging tech news update in simple Indian English. "
-            "Use 1 emoji headline, 1 key detail, and hashtags like #TechNews #India. "
-            "STRICT REQUIREMENT: Total output length MUST BE UNDER 180 CHARACTERS."
+            "Use 1 emoji headline, 1 concise detail bullet, and hashtags like #TechNews #IndiaTech. "
+            "STRICT REQUIREMENT: Total output text MUST BE BETWEEN 200 AND 230 CHARACTERS."
         )
         response = client.models.generate_content(
             model='gemini-3.6-flash',
@@ -24,9 +24,9 @@ def generate_news_with_gemini():
         )
         text = response.text.strip()
         
-        # Hard cap safety for Twitter 280 limit
-        if len(text) > 250:
-            text = text[:247] + "..."
+        # Safety cap for Twitter
+        if len(text) > 240:
+            text = text[:237] + "..."
         return text
     except Exception as e:
         print("Gemini API Error:", e)
@@ -90,15 +90,15 @@ def send_to_buffer_graphql(post_text):
         print("Error: Channels nahi mile!", ch_data)
         return
 
-    # Tech image for Instagram & X
+    # Tech Image URL
     news_image_url = "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1080&q=80"
 
-    # 3. Direct Inline Mutation with image for all channels
+    # 3. Corrected Mutation with ImageAssetInput Object
     for ch in channels:
         ch_id = ch.get("id")
         service = ch.get("service")
         
-        media_input = f', assets: {{ image: "{news_image_url}" }}'
+        media_input = f', assets: {{ image: {{ url: "{news_image_url}" }} }}'
 
         mutation = f"""
         mutation {{
