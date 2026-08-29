@@ -12,7 +12,7 @@ def generate_news_with_gemini():
 
     try:
         client = genai.Client(api_key=GEMINI_API_KEY)
-        # Indian English + 200-230 characters range
+        # Indian English + strict character length
         prompt = (
             "Write a short, engaging tech news update in simple Indian English. "
             "Use 1 emoji headline, 1 concise detail bullet, and hashtags like #TechNews #IndiaTech. "
@@ -24,7 +24,7 @@ def generate_news_with_gemini():
         )
         text = response.text.strip()
         
-        # Safety cap for Twitter
+        # Twitter safety cap
         if len(text) > 240:
             text = text[:237] + "..."
         return text
@@ -93,11 +93,13 @@ def send_to_buffer_graphql(post_text):
     # Tech Image URL
     news_image_url = "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1080&q=80"
 
-    # 3. Corrected Mutation with ImageAssetInput Object
+    # 3. Post to channels with Instagram Type
     for ch in channels:
         ch_id = ch.get("id")
         service = ch.get("service")
         
+        # Instagram requires type parameter
+        type_param = ', type: post' if service.lower() == 'instagram' else ''
         media_input = f', assets: {{ image: {{ url: "{news_image_url}" }} }}'
 
         mutation = f"""
@@ -106,7 +108,7 @@ def send_to_buffer_graphql(post_text):
                 channelId: "{ch_id}",
                 text: {requests.compat.json.dumps(post_text)},
                 schedulingType: automatic,
-                mode: shareNow{media_input}
+                mode: shareNow{type_param}{media_input}
             }}) {{
                 ... on PostActionSuccess {{
                     post {{
