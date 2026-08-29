@@ -39,11 +39,11 @@ def send_to_buffer_graphql(post_text):
         "Content-Type": "application/json"
     }
     
-    # Direct Channels Query (Bypasses Organization Level Forbidden Error)
+    # Correct GraphQL Channels Query with required ChannelsInput
     channels_query = {
         "query": """
         query GetUserChannels {
-            channels {
+            channels(input: {}) {
                 id
                 name
                 service
@@ -61,7 +61,7 @@ def send_to_buffer_graphql(post_text):
         
     channels = res_data.get("data", {}).get("channels", [])
     if not channels:
-        print("Error: Buffer Dashboard me connected channels nahi mile!")
+        print("Error: Connected Channels nahi mile!")
         return
 
     # Post Publish Mutation
