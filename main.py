@@ -12,16 +12,22 @@ def generate_news_with_gemini():
 
     try:
         client = genai.Client(api_key=GEMINI_API_KEY)
+        # Indian English + strict length limit
         prompt = (
-            "Write a short, engaging social media post about recent tech news. "
-            "Include an emoji headline, 2 key bullet points, and popular hashtags like #TechNews #AI. "
-            "Keep it plain text."
+            "Write a short, engaging tech news update in simple Indian English. "
+            "Use 1 emoji headline, 1 key detail, and hashtags like #TechNews #India. "
+            "STRICT REQUIREMENT: Total output length MUST BE UNDER 180 CHARACTERS."
         )
         response = client.models.generate_content(
             model='gemini-3.6-flash',
             contents=prompt,
         )
-        return response.text
+        text = response.text.strip()
+        
+        # Hard cap safety for Twitter 280 limit
+        if len(text) > 250:
+            text = text[:247] + "..."
+        return text
     except Exception as e:
         print("Gemini API Error:", e)
         return None
@@ -84,19 +90,23 @@ def send_to_buffer_graphql(post_text):
         print("Error: Channels nahi mile!", ch_data)
         return
 
-    # 3. Direct Inline Mutation (Buffer Official GraphQL Standard)
+    # Tech image for Instagram & X
+    news_image_url = "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1080&q=80"
+
+    # 3. Direct Inline Mutation with image for all channels
     for ch in channels:
         ch_id = ch.get("id")
         service = ch.get("service")
         
-        # Buffer expects raw enum 'shareNow' and 'automatic'
+        media_input = f', assets: {{ image: "{news_image_url}" }}'
+
         mutation = f"""
         mutation {{
             createPost(input: {{
                 channelId: "{ch_id}",
                 text: {requests.compat.json.dumps(post_text)},
                 schedulingType: automatic,
-                mode: shareNow
+                mode: shareNow{media_input}
             }}) {{
                 ... on PostActionSuccess {{
                     post {{
