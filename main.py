@@ -20,40 +20,76 @@ def fetch_latest_news():
             return post_text
     return None
 
-def send_to_buffer(post_text):
+def send_to_buffer_graphql(post_text):
     if not BUFFER_ACCESS_TOKEN:
-        print("Error: BUFFER_ACCESS_TOKEN Secret missing hai!")
+        print("Error: BUFFER_ACCESS_TOKEN Missing!")
         return
 
-    # 1. Connected Profiles Fetch Karna
-    profiles_url = f"https://api.bufferapp.com/1/profiles.json?access_token={BUFFER_ACCESS_TOKEN}"
-    res = requests.get(profiles_url)
+    url = "https://api.buffer.com/graphql"
+    headers = {
+        "Authorization": f"Bearer {BUFFER_ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
     
-    if res.status_code != 200:
-        print("Buffer Auth/Profile Error:", res.text)
-        return
-
-    profiles = res.json()
-    if not profiles:
-        print("Buffer account me koi Social Media Channel connected nahi milaa!")
-        return
-
-    # 2. Daily Post Create Karna
-    create_url = f"https://api.bufferapp.com/1/updates/create.json?access_token={BUFFER_ACCESS_TOKEN}"
-    
-    for p in profiles:
-        profile_id = p.get("id")
-        payload = {
-            "text": post_text,
-            "profile_ids[]": profile_id,
-            "now": "true"
+    # 1. Connected Channels (Instagram/X) Fetch Karna
+    channels_query = {
+        "query": """
+        query GetChannels {
+            account {
+                organizations {
+                    channels {
+                        id
+                        service
+                    }
+                }
+            }
         }
-        post_res = requests.post(create_url, data=payload)
-        print(f"Post Result for Profile {profile_id}:", post_res.text)
+        """
+    }
+    
+    res = requests.post(url, json=channels_query, headers=headers)
+    res_data = res.json()
+    
+    if "errors" in res_data:
+        print("Buffer GraphQL Error:", res_data["errors"])
+        return
+        
+    orgs = res_data.get("data", {}).get("account", {}).get("organizations", [])
+    if not orgs:
+        print("Error: Buffer account me Organization nahi mili!")
+        return
+
+    channel_ids = [c["id"] for c in orgs[0].get("channels", [])]
+    if not channel_ids:
+        print("Error: Buffer me koi Instagram/Twitter Channel connected nahi mila!")
+        return
+
+    # 2. GraphQL se Channels par Post Bhejna
+    mutation = """
+    mutation CreatePost($channelId: String!, $text: String!) {
+        createPost(channelId: $channelId, text: $text, mode: NOW) {
+            post {
+                id
+            }
+        }
+    }
+    """
+    
+    for ch_id in channel_ids:
+        payload = {
+            "query": mutation,
+            "variables": {
+                "channelId": ch_id,
+                "text": post_text
+            }
+        }
+        post_res = requests.post(url, json=payload, headers=headers)
+        print(f"Post Sent Result for {ch_id}:", post_res.text)
 
 if __name__ == "__main__":
     text = fetch_latest_news()
     if text:
-        send_to_buffer(text)
+        print("Fetched News! Sending via Buffer GraphQL...")
+        send_to_buffer_graphql(text)
     else:
         print("News Fetch Nahi Ho Payi!")
