@@ -39,32 +39,63 @@ def send_to_buffer_graphql(post_text):
         "Content-Type": "application/json"
     }
     
-    # Correct GraphQL Channels Query with required ChannelsInput
-    channels_query = {
+    # Step 1: Account info se Organization ID Fetch karna
+    account_query = {
         "query": """
-        query GetUserChannels {
-            channels(input: {}) {
-                id
-                name
-                service
+        query GetAccount {
+            account {
+                organizations {
+                    id
+                }
             }
         }
         """
     }
     
-    res = requests.post(url, json=channels_query, headers=headers)
-    res_data = res.json()
+    acc_res = requests.post(url, json=account_query, headers=headers)
+    acc_data = acc_res.json()
     
-    if "errors" in res_data:
-        print("Buffer GraphQL Error:", res_data["errors"])
+    if "errors" in acc_data:
+        print("Buffer Account Query Error:", acc_data["errors"])
         return
         
-    channels = res_data.get("data", {}).get("channels", [])
-    if not channels:
-        print("Error: Connected Channels nahi mile!")
+    orgs = acc_data.get("data", {}).get("account", {}).get("organizations", [])
+    if not orgs:
+        print("Error: Buffer Organization nahi mili!")
         return
 
-    # Post Publish Mutation
+    org_id = orgs[0].get("id")
+
+    # Step 2: Correct Organization ID ke sath Channels Fetch karna
+    channels_query = {
+        "query": """
+        query GetChannels($input: ChannelsInput!) {
+            channels(input: $input) {
+                id
+                service
+            }
+        }
+        """,
+        "variables": {
+            "input": {
+                "organizationId": org_id
+            }
+        }
+    }
+    
+    ch_res = requests.post(url, json=channels_query, headers=headers)
+    ch_data = ch_res.json()
+    
+    if "errors" in ch_data:
+        print("Buffer Channels Query Error:", ch_data["errors"])
+        return
+
+    channels = ch_data.get("data", {}).get("channels", [])
+    if not channels:
+        print("Error: Connected Channels nahi melein!")
+        return
+
+    # Step 3: Post Publish Mutation
     mutation = """
     mutation CreatePost($channelId: String!, $text: String!) {
         createPost(channelId: $channelId, text: $text, mode: NOW) {
