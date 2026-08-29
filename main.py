@@ -19,44 +19,71 @@ def fetch_latest_news():
         return post_text
     return None
 
-def get_buffer_profiles():
-    # Buffer me connected Social Media Profiles ki IDs fetch karna
-    url = f"https://api.bufferapp.com/1/profiles.json?access_token={BUFFER_ACCESS_TOKEN}"
-    response = requests.get(url)
+def send_to_buffer_graphql(post_text):
+    url = "https://api.buffer.com/graphql"
+    headers = {
+        "Authorization": f"Bearer {BUFFER_ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
     
-    if response.status_code == 200:
-        profiles = response.json()
-        return [p["id"] for p in profiles]
-    else:
-        print("Error fetching Buffer profiles:", response.text)
-        return []
-
-def send_to_buffer(post_text):
-    profile_ids = get_buffer_profiles()
+    # 1. Fetch Channels
+    channels_query = {
+        "query": """
+        query GetChannels {
+            account {
+                organizations {
+                    channels {
+                        id
+                        service
+                    }
+                }
+            }
+        }
+        """
+    }
     
-    if not profile_ids:
-        print("Error: Buffer se koi connected social account nahi mila. Buffer dashboard check karein!")
+    res = requests.post(url, json=channels_query, headers=headers)
+    res_data = res.json()
+    
+    if "errors" in res_data:
+        print("Buffer API Auth Error:", res_data["errors"])
+        return
+        
+    orgs = res_data.get("data", {}).get("account", {}).get("organizations", [])
+    if not orgs:
+        print("No Organization found in Buffer!")
         return
 
-    url = f"https://api.bufferapp.com/1/updates/create.json?access_token={BUFFER_ACCESS_TOKEN}"
-    
-    # Sabhi connected accounts (X aur Insta) par post publish karna
-    for p_id in profile_ids:
-        payload = {
-            "text": post_text,
-            "profile_ids[]": p_id,
-            "now": True  # Immediate auto-post ke liye
+    channel_ids = [c["id"] for c in orgs[0].get("channels", [])]
+    if not channel_ids:
+        print("No connected channels found! Check Buffer Dashboard.")
+        return
+
+    # 2. Create Post for each Channel
+    mutation = """
+    mutation CreatePost($channelId: String!, $text: String!) {
+        createPost(channelId: $channelId, text: $text, mode: NOW) {
+            post {
+                id
+            }
         }
-        response = requests.post(url, data=payload)
-        
-        if response.status_code == 200:
-            print(f"Successfully posted to Profile ID: {p_id}")
-        else:
-            print(f"Failed to post on Profile ID {p_id}:", response.text)
+    }
+    """
+    
+    for ch_id in channel_ids:
+        payload = {
+            "query": mutation,
+            "variables": {
+                "channelId": ch_id,
+                "text": post_text
+            }
+        }
+        post_res = requests.post(url, json=payload, headers=headers)
+        print(f"Post Response for {ch_id}:", post_res.text)
 
 if __name__ == "__main__":
     text = fetch_latest_news()
     if text:
-        send_to_buffer(text)
+        send_to_buffer_graphql(text)
     else:
         print("No news fetched!")
