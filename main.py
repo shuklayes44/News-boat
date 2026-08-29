@@ -12,13 +12,11 @@ def generate_news_with_gemini():
 
     try:
         client = genai.Client(api_key=GEMINI_API_KEY)
-        
         prompt = (
             "Write a short, engaging social media post about recent tech news. "
             "Include an emoji headline, 2 key bullet points, and popular hashtags like #TechNews #AI. "
             "Keep it plain text."
         )
-
         response = client.models.generate_content(
             model='gemini-3.6-flash',
             contents=prompt,
@@ -39,7 +37,7 @@ def send_to_buffer_graphql(post_text):
         "Content-Type": "application/json"
     }
     
-    # Step 1: Account info se Organization ID Fetch karna
+    # 1. Fetch Account Organizations
     account_query = {
         "query": """
         query GetAccount {
@@ -55,18 +53,14 @@ def send_to_buffer_graphql(post_text):
     acc_res = requests.post(url, json=account_query, headers=headers)
     acc_data = acc_res.json()
     
-    if "errors" in acc_data:
-        print("Buffer Account Query Error:", acc_data["errors"])
-        return
-        
     orgs = acc_data.get("data", {}).get("account", {}).get("organizations", [])
     if not orgs:
-        print("Error: Buffer Organization nahi mili!")
+        print("Error: Organization nahi mili!")
         return
 
     org_id = orgs[0].get("id")
 
-    # Step 2: Correct Organization ID ke sath Channels Fetch karna
+    # 2. Fetch Connected Channels
     channels_query = {
         "query": """
         query GetChannels($input: ChannelsInput!) {
@@ -85,20 +79,12 @@ def send_to_buffer_graphql(post_text):
     
     ch_res = requests.post(url, json=channels_query, headers=headers)
     ch_data = ch_res.json()
-    
-    if "errors" in ch_data:
-        print("Buffer Channels Query Error:", ch_data["errors"])
-        return
-
     channels = ch_data.get("data", {}).get("channels", [])
-    if not channels:
-        print("Error: Connected Channels nahi melein!")
-        return
 
-    # Step 3: Post Publish Mutation
+    # 3. Validated Buffer CreatePost Mutation
     mutation = """
-    mutation CreatePost($channelId: String!, $text: String!) {
-        createPost(channelId: $channelId, text: $text, mode: NOW) {
+    mutation CreatePost($input: CreatePostInput!) {
+        createPost(input: $input) {
             post {
                 id
             }
@@ -111,12 +97,15 @@ def send_to_buffer_graphql(post_text):
         payload = {
             "query": mutation,
             "variables": {
-                "channelId": ch_id,
-                "text": post_text
+                "input": {
+                    "channelId": ch_id,
+                    "text": post_text,
+                    "mode": "NOW"
+                }
             }
         }
         post_res = requests.post(url, json=payload, headers=headers)
-        print(f"Post Sent Result for Channel {ch.get('service')} ({ch_id}):", post_res.text)
+        print(f"Post Sent Result for {ch.get('service')} ({ch_id}):", post_res.text)
 
 if __name__ == "__main__":
     text = generate_news_with_gemini()
