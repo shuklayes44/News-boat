@@ -11,18 +11,19 @@ def generate_news_with_gemini():
         return None
 
     try:
+        # SDK Client Init
         client = genai.Client(api_key=GEMINI_API_KEY)
         
         prompt = (
-            "Write a short, engaging viral social media post about a recent technology or AI update. "
-            "Include an eye-catching headline with emojis, 2 core points, and trending hashtags like #TechNews #AI #Technology. "
-            "Keep the output clean so it can be posted directly."
+            "Write a short, viral social media post about recent AI or Technology news. "
+            "Include an emoji headline, 2 key bullet points, and popular hashtags like #Tech #AI. "
+            "Do not add any intros or explanations."
         )
 
-        # Fix: Using valid stable model gemini-1.5-flash
+        # Standard clean call for standard text generation
         response = client.models.generate_content(
-            model='gemini-1.5-flash',
-            contents=prompt,
+            model='gemini-2.5-flash',
+            contents=prompt
         )
         return response.text
     except Exception as e:
@@ -40,7 +41,7 @@ def send_to_buffer_graphql(post_text):
         "Content-Type": "application/json"
     }
     
-    # Fetch Connected Channels
+    # 1. Connected Channels Fetch
     channels_query = {
         "query": """
         query GetChannels {
@@ -70,10 +71,10 @@ def send_to_buffer_graphql(post_text):
 
     channel_ids = [c["id"] for c in orgs[0].get("channels", [])]
     if not channel_ids:
-        print("Error: Buffer Dashboard me connected channels nahi mile!")
+        print("Error: Buffer Dashboard me connected channels nahi mele!")
         return
 
-    # Post Publish Mutation
+    # 2. Post Create Mutation
     mutation = """
     mutation CreatePost($channelId: String!, $text: String!) {
         createPost(channelId: $channelId, text: $text, mode: NOW) {
@@ -98,7 +99,7 @@ def send_to_buffer_graphql(post_text):
 if __name__ == "__main__":
     text = generate_news_with_gemini()
     if text:
-        print("News generated via Gemini AI! Sending to Buffer...")
+        print("News generated via Gemini AI! Sending to Buffer GraphQL...")
         send_to_buffer_graphql(text)
     else:
         print("News generation failed!")
