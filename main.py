@@ -54,132 +54,53 @@ def generate_news_with_gemini():
     print("All Gemini API attempts failed.")
     return None
 
-def send_to_buffer_graphql(post_text):
+def send_to_buffer_rest_api(post_text):
     if not BUFFER_ACCESS_TOKEN:
         print("Error: BUFFER_ACCESS_TOKEN Missing!")
         return
 
-    url = "https://api.buffer.com/graphql"
-    headers = {
-        "Authorization": f"Bearer {BUFFER_ACCESS_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    
-    # 1. Fetch Organization ID
-    account_query = {
-        "query": """
-        query GetAccount {
-            account {
-                organizations {
-                    id
-                }
-            }
-        }
-        """
-    }
-    
-    acc_res = requests.post(url, json=account_query, headers=headers)
-    acc_data = acc_res.json()
-    orgs = acc_data.get("data", {}).get("account", {}).get("organizations", [])
-    if not orgs:
-        print("Error: Organization nahi mili!", acc_data)
+    # 1. Fetch Profiles/Channels
+    profiles_url = f"https://api.bufferapp.com/1/profiles.json?access_token={BUFFER_ACCESS_TOKEN}"
+    try:
+        profiles_res = requests.get(profiles_url)
+        profiles = profiles_res.json()
+    except Exception as e:
+        print(f"Profiles fetch error: {e}")
         return
 
-    org_id = orgs[0].get("id")
-
-    # 2. Fetch Connected Channels
-    channels_query = {
-        "query": """
-        query GetChannels($input: ChannelsInput!) {
-            channels(input: $input) {
-                id
-                service
-            }
-        }
-        """,
-        "variables": {
-            "input": {
-                "organizationId": org_id
-            }
-        }
-    }
-    
-    ch_res = requests.post(url, json=channels_query, headers=headers)
-    ch_data = ch_res.json()
-    channels = ch_data.get("data", {}).get("channels", [])
-
-    if not channels:
-        print("Error: Channels nahi mile!", ch_data)
+    if not isinstance(profiles, list) or len(profiles) == 0:
+        print("Error: Channels/Profiles nahi mile!", profiles)
         return
 
-    # Timestamp seed for unique image
+    # Image setup
     timestamp_seed = int(time.time())
     news_image_url = f"https://picsum.photos/seed/{timestamp_seed}/1200/675"
 
-    # 3. Direct Instant Post to Channels
-    for ch in channels:
-        ch_id = ch.get("id")
-        service = ch.get("service")
-        
-        # Fixed Payload with Mandatory schedulingType
-        if service.lower() == 'instagram':
-            input_payload = {
-                "channelId": ch_id,
-                "text": post_text,
-                "mode": "shareNow",
-                "schedulingType": "automatic",
-                "assets": {
-                    "image": {
-                        "url": news_image_url
-                    }
-                },
-                "metadata": {
-                    "instagram": {
-                        "type": "post",
-                        "shouldShareToFeed": True
-                    }
-                }
-            }
-        else:
-            input_payload = {
-                "channelId": ch_id,
-                "text": post_text,
-                "mode": "shareNow",
-                "schedulingType": "automatic",
-                "assets": {
-                    "image": {
-                        "url": news_image_url
-                    }
-                }
-            }
+    # 2. Post Directly Using REST API v1
+    create_url = "https://api.bufferapp.com/1/updates/create.json"
 
-        mutation = """
-        mutation CreatePost($input: CreatePostInput!) {
-            createPost(input: $input) {
-                ... on PostActionSuccess {
-                    post {
-                        id
-                        status
-                    }
-                }
-                ... on MutationError {
-                    message
-                }
-            }
+    for profile in profiles:
+        profile_id = profile.get("id")
+        service = profile.get("service")
+
+        payload = {
+            "access_token": BUFFER_ACCESS_TOKEN,
+            "profile_ids[]": profile_id,
+            "text": post_text,
+            "now": "true",  # Direct Instant Share
+            "media[photo]": news_image_url
         }
-        """
-        
-        post_res = requests.post(
-            url, 
-            json={"query": mutation, "variables": {"input": input_payload}}, 
-            headers=headers
-        )
-        print(f"Result for {service} ({ch_id}):", post_res.text)
+
+        try:
+            res = requests.post(create_url, data=payload)
+            print(f"Result for {service} ({profile_id}):", res.text)
+        except Exception as e:
+            print(f"Failed posting to {service}: {e}")
 
 if __name__ == "__main__":
     text = generate_news_with_gemini()
     if text:
-        print(f"Generated News Text for WorldScopeX:\n{text}\n\nSending to Buffer...")
-        send_to_buffer_graphql(text)
+        print(f"Generated News Text for WorldScopeX:\n{text}\n\nSending via Buffer REST API...")
+        send_to_buffer_rest_api(text)
     else:
         print("News generation failed!")
