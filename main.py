@@ -3,8 +3,15 @@ import time
 import requests
 import random
 import io
-from PIL import Image
 from google import genai
+
+# Try loading PIL safely so code never crashes
+try:
+    from PIL import Image
+    HAS_PIL = True
+except ImportError:
+    HAS_PIL = False
+    print("Warning: Pillow missing. Will use direct high-quality photo.")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 BUFFER_ACCESS_TOKEN = os.getenv("BUFFER_ACCESS_TOKEN")
@@ -57,15 +64,12 @@ def generate_news_with_gemini():
     return None, "news"
 
 def get_topic_matched_image_url(image_keywords):
-    # Select a specific keyword for target relevance
     keyword = random.choice(image_keywords.split(','))
     unique_seed = f"{keyword}_{int(time.time())}_{random.randint(100, 999)}"
-    
-    # High Quality Dynamic Photo matching the topic
     base_image_url = f"https://picsum.photos/seed/{unique_seed}/1200/675.jpg"
     
     logo_path = "logo.png"
-    if os.path.exists(logo_path):
+    if HAS_PIL and os.path.exists(logo_path):
         try:
             print("Logo found in repo! Applying WorldScopeX Watermark...")
             res = requests.get(base_image_url, timeout=15)
@@ -73,25 +77,22 @@ def get_topic_matched_image_url(image_keywords):
                 bg = Image.open(io.BytesIO(res.content)).convert("RGBA")
                 logo = Image.open(logo_path).convert("RGBA")
 
-                # Resize logo proportionally (180px width)
                 logo_w = 180
                 w_percent = logo_w / float(logo.size[0])
                 logo_h = int(float(logo.size[1]) * float(w_percent))
                 logo = logo.resize((logo_w, logo_h), Image.Resampling.LANCZOS)
 
-                # Place logo on top-right corner with padding
                 pos_x = bg.width - logo_w - 30
                 pos_y = 30
                 bg.paste(logo, (pos_x, pos_y), logo)
 
-                # Save branded image locally
                 final_img = bg.convert("RGB")
                 final_img.save("branded_post.jpg", quality=95)
                 print("Branded image created successfully.")
         except Exception as e:
             print(f"Watermark overlay error: {e}. Using direct image URL.")
     else:
-        print("Note: logo.png repo me nahi mila. Pure topic image use ho rahi hai.")
+        print("Using direct HQ photo URL.")
 
     return base_image_url
 
@@ -106,7 +107,6 @@ def send_to_buffer_graphql(post_text, image_url):
         "Content-Type": "application/json"
     }
     
-    # 1. Fetch Organization ID
     account_query = {
         "query": """
         query GetAccount {
@@ -128,7 +128,6 @@ def send_to_buffer_graphql(post_text, image_url):
 
     org_id = orgs[0].get("id")
 
-    # 2. Fetch Connected Channels
     channels_query = {
         "query": """
         query GetChannels($input: ChannelsInput!) {
@@ -153,7 +152,6 @@ def send_to_buffer_graphql(post_text, image_url):
         print("Error: Channels nahi mile!", ch_data)
         return
 
-    # 3. Direct Post Execution (Proven working structure)
     for ch in channels:
         ch_id = ch.get("id")
         service = ch.get("service")
