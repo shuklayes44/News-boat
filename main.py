@@ -10,17 +10,17 @@ BUFFER_ACCESS_TOKEN = os.getenv("BUFFER_ACCESS_TOKEN")
 def generate_news_with_gemini():
     if not GEMINI_API_KEY:
         print("Error: GEMINI_API_KEY Missing hai!")
-        return None
+        return None, "news"
 
     topics = [
-        "Major Global Tech Breakthroughs & AI Hardware Innovations",
-        "World Economy, Stock Markets & Global Trade Developments",
-        "Geopolitics, International Relations & Diplomacy Updates",
-        "Space Exploration, Defense Tech & Science Discoveries",
-        "India Governance, Infrastructure & Mega Projects News"
+        ("Major Global Tech Breakthroughs & AI Hardware Innovations", "technology"),
+        ("World Economy, Stock Markets & Global Trade Developments", "business"),
+        ("Geopolitics, International Relations & Diplomacy Updates", "city"),
+        ("Space Exploration, Defense Tech & Science Discoveries", "space"),
+        ("India Governance, Infrastructure & Mega Projects News", "architecture")
     ]
     
-    selected_topic = random.choice(topics)
+    selected_topic, image_category = random.choice(topics)
     print(f"Generating post for WorldScopeX Category: {selected_topic}")
 
     prompt = (
@@ -46,15 +46,15 @@ def generate_news_with_gemini():
             text = response.text.strip()
             if len(text) > 240:
                 text = text[:237] + "..."
-            return text
+            return text, image_category
         except Exception as e:
             print(f"Attempt {attempt+1} failed: {e}")
             time.sleep(3)
 
     print("All Gemini API attempts failed.")
-    return None
+    return None, "news"
 
-def send_to_buffer_graphql(post_text):
+def send_to_buffer_graphql(post_text, category):
     if not BUFFER_ACCESS_TOKEN:
         print("Error: BUFFER_ACCESS_TOKEN Missing!")
         return
@@ -112,10 +112,12 @@ def send_to_buffer_graphql(post_text):
         print("Error: Channels nahi mile!", ch_data)
         return
 
-    timestamp_seed = int(time.time())
-    news_image_url = f"https://picsum.photos/seed/{timestamp_seed}/1200/675"
+    # Unique Image URL Generation (Timestamp + Category Randomness)
+    unique_seed = f"{category}_{int(time.time())}_{random.randint(100, 999)}"
+    news_image_url = f"https://picsum.photos/seed/{unique_seed}/1200/675"
+    print(f"Generated Unique Image URL: {news_image_url}")
 
-    # 3. Post to Channels (Direct Instant Mode)
+    # 3. Direct Post Execution
     for ch in channels:
         ch_id = ch.get("id")
         service = ch.get("service")
@@ -127,7 +129,6 @@ def send_to_buffer_graphql(post_text):
 
         media_input = f', assets: {{ image: {{ url: "{news_image_url}" }} }}'
 
-        # Correct Enum Query String for Buffer GraphQL
         mutation = f"""
         mutation {{
             createPost(input: {{
@@ -153,9 +154,9 @@ def send_to_buffer_graphql(post_text):
         print(f"Result for {service} ({ch_id}):", post_res.text)
 
 if __name__ == "__main__":
-    text = generate_news_with_gemini()
+    text, category = generate_news_with_gemini()
     if text:
-        print(f"Generated News Text for WorldScopeX:\n{text}\n\nSending to Buffer via GraphQL...")
-        send_to_buffer_graphql(text)
+        print(f"Generated News Text for WorldScopeX:\n{text}\n\nSending to Buffer...")
+        send_to_buffer_graphql(text, category)
     else:
         print("News generation failed!")
