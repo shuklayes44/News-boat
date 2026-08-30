@@ -1,4 +1,5 @@
 import os
+import time
 import requests
 import random
 from google import genai
@@ -11,7 +12,6 @@ def generate_news_with_gemini():
         print("Error: GEMINI_API_KEY Missing hai!")
         return None
 
-    # Topic Pool for WorldScopeX
     topics = [
         "India National News & Major Governance/Infrastructure Update",
         "Global Geopolitics & High-Impact World News",
@@ -23,32 +23,40 @@ def generate_news_with_gemini():
     selected_topic = random.choice(topics)
     print(f"Generating post for WorldScopeX Category: {selected_topic}")
 
-    try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        prompt = (
-            f"You are the head content strategist for 'WorldScopeX'. Write a high-engagement viral news post about: {selected_topic}.\n"
-            "STRICT RULES:\n"
-            "1. Language: Crisp Indian English.\n"
-            "2. Structure:\n"
-            "   - Line 1: 🚨 [CAPS HOOK HEADLINE] with Emoji\n"
-            "   - Line 2-3: Core facts / Key numbers & metrics\n"
-            "   - Line 4: Engagement Question (e.g., 'What is your take on this?')\n"
-            "   - Line 5: #WorldScopeX #India #WorldNews #Economy\n"
-            "3. Character Limit: MUST BE STRICTLY BETWEEN 200 AND 230 CHARACTERS TOTAL."
-        )
-        
-        response = client.models.generate_content(
-            model='gemini-3.6-flash',
-            contents=prompt,
-        )
-        text = response.text.strip()
-        
-        if len(text) > 240:
-            text = text[:237] + "..."
-        return text
-    except Exception as e:
-        print("Gemini API Error:", e)
-        return None
+    prompt = (
+        f"You are the head content strategist for 'WorldScopeX'. Write a high-engagement viral news post about: {selected_topic}.\n"
+        "STRICT RULES:\n"
+        "1. Language: Crisp Indian English.\n"
+        "2. Structure:\n"
+        "   - Line 1: 🚨 [CAPS HOOK HEADLINE] with Emoji\n"
+        "   - Line 2-3: Core facts / Key numbers & metrics\n"
+        "   - Line 4: Engagement Question (e.g., 'What is your take on this?')\n"
+        "   - Line 5: #WorldScopeX #India #WorldNews #Economy\n"
+        "3. Character Limit: MUST BE STRICTLY BETWEEN 200 AND 230 CHARACTERS TOTAL."
+    )
+
+    client = genai.Client(api_key=GEMINI_API_KEY)
+    
+    # Models array for fallback if 503 high demand occurs
+    models_to_try = ['gemini-2.5-flash', 'gemini-1.5-flash']
+
+    for model_name in models_to_try:
+        for attempt in range(2):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                )
+                text = response.text.strip()
+                if len(text) > 240:
+                    text = text[:237] + "..."
+                return text
+            except Exception as e:
+                print(f"Attempt {attempt+1} on {model_name} failed: {e}")
+                time.sleep(3) # Wait 3 seconds before retrying
+
+    print("All models failed to respond due to high demand.")
+    return None
 
 def send_to_buffer_graphql(post_text):
     if not BUFFER_ACCESS_TOKEN:
@@ -108,7 +116,6 @@ def send_to_buffer_graphql(post_text):
         print("Error: Channels nahi mile!", ch_data)
         return
 
-    # Dynamic seed image URL for news banner
     random_id = random.randint(100, 9999)
     news_image_url = f"https://picsum.photos/seed/{random_id}/1080/1080"
 
@@ -117,7 +124,6 @@ def send_to_buffer_graphql(post_text):
         ch_id = ch.get("id")
         service = ch.get("service")
         
-        # Fixed Instagram Specific Input Schema
         if service.lower() == 'instagram':
             metadata_param = ', metadata: { instagram: { type: post } }'
         else:
