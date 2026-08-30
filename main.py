@@ -65,7 +65,7 @@ def send_to_buffer_graphql(post_text, category):
         "Content-Type": "application/json"
     }
     
-    # 1. Fetch Organization ID
+    # 1. Get Account & Org ID
     account_query = {
         "query": """
         query GetAccount {
@@ -87,7 +87,7 @@ def send_to_buffer_graphql(post_text, category):
 
     org_id = orgs[0].get("id")
 
-    # 2. Fetch Connected Channels
+    # 2. Get Channels
     channels_query = {
         "query": """
         query GetChannels($input: ChannelsInput!) {
@@ -112,22 +112,22 @@ def send_to_buffer_graphql(post_text, category):
         print("Error: Channels nahi mile!", ch_data)
         return
 
-    # Unique Image URL Generation (Timestamp + Category Randomness)
+    # Unique Image Link
     unique_seed = f"{category}_{int(time.time())}_{random.randint(100, 999)}"
-    news_image_url = f"https://picsum.photos/seed/{unique_seed}/1200/675"
-    print(f"Generated Unique Image URL: {news_image_url}")
+    news_image_url = f"https://picsum.photos/seed/{unique_seed}/1200/675.jpg"
 
-    # 3. Direct Post Execution
+    # 3. Create Post
     for ch in channels:
         ch_id = ch.get("id")
         service = ch.get("service")
         
+        # Instagram Metadata
         if service.lower() == 'instagram':
             metadata_param = ', metadata: { instagram: { type: post, shouldShareToFeed: true } }'
         else:
             metadata_param = ''
 
-        media_input = f', assets: {{ image: {{ url: "{news_image_url}" }} }}'
+        media_input = f', assets: [{{ image: {{ url: "{news_image_url}" }} }}]'
 
         mutation = f"""
         mutation {{
