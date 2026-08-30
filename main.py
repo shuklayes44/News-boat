@@ -13,31 +13,30 @@ def generate_news_with_gemini():
         return None
 
     topics = [
-        "India National News & Major Governance/Infrastructure Update",
-        "Global Geopolitics & High-Impact World News",
-        "Indian & Global Economy, Stock Market, Business or Startups",
-        "Latest Breakthrough Tech, AI Innovation or Frontier Gadgets",
-        "Indian Politics & Major Policy Updates"
+        "Major Global Tech Breakthroughs & AI Hardware Innovations",
+        "World Economy, Stock Markets & Global Trade Developments",
+        "Geopolitics, International Relations & Diplomacy Updates",
+        "Space Exploration, Defense Tech & Science Discoveries",
+        "India Governance, Infrastructure & Mega Projects News"
     ]
     
     selected_topic = random.choice(topics)
     print(f"Generating post for WorldScopeX Category: {selected_topic}")
 
     prompt = (
-        f"You are the head content strategist for 'WorldScopeX'. Write a high-engagement viral news post about: {selected_topic}.\n"
+        f"You are the senior journalist for 'WorldScopeX'. Write a real-time viral news summary on: {selected_topic}.\n"
         "STRICT RULES:\n"
-        "1. Language: Crisp Indian English.\n"
+        "1. Language: Professional Indian English.\n"
         "2. Structure:\n"
-        "   - Line 1: 🚨 [CAPS HOOK HEADLINE] with Emoji\n"
-        "   - Line 2-3: Core facts / Key numbers & metrics\n"
-        "   - Line 4: Engagement Question (e.g., 'What is your take on this?')\n"
-        "   - Line 5: #WorldScopeX #India #WorldNews #Economy\n"
-        "3. Character Limit: MUST BE STRICTLY BETWEEN 200 AND 230 CHARACTERS TOTAL."
+        "   - Line 1: 🚨 [CAPS HOOK HEADLINE] with relevant Emoji\n"
+        "   - Line 2-3: Core factual news update with key figures or numbers\n"
+        "   - Line 4: Short engagement question\n"
+        "   - Line 5: #WorldScopeX #NewsUpdate #Global #Tech\n"
+        "3. Length: Strictly between 200 and 230 characters TOTAL."
     )
 
     client = genai.Client(api_key=GEMINI_API_KEY)
 
-    # Exact model that worked in Run #49
     for attempt in range(3):
         try:
             response = client.models.generate_content(
@@ -113,17 +112,18 @@ def send_to_buffer_graphql(post_text):
         print("Error: Channels nahi mile!", ch_data)
         return
 
-    random_id = random.randint(100, 9999)
-    news_image_url = f"https://picsum.photos/seed/{random_id}/1080/1080"
+    # Unique image seed for every post based on timestamp
+    timestamp_seed = int(time.time())
+    news_image_url = f"https://picsum.photos/seed/{timestamp_seed}/1200/675"
 
-    # 3. Execution Loop across connected accounts
+    # 3. Post to Channels
     for ch in channels:
         ch_id = ch.get("id")
         service = ch.get("service")
         
-        # Buffer Instagram Meta Payload Fix
+        # Instagram Metadata Fix
         if service.lower() == 'instagram':
-            metadata_param = ', metadata: { instagram: { type: post } }'
+            metadata_param = ', metadata: { instagram: { type: post, shouldShareToFeed: true } }'
         else:
             metadata_param = ''
 
@@ -135,7 +135,7 @@ def send_to_buffer_graphql(post_text):
                 channelId: "{ch_id}",
                 text: {requests.compat.json.dumps(post_text)},
                 schedulingType: automatic,
-                mode: shareNow{metadata_param}{media_input}
+                mode: addToQueue{metadata_param}{media_input}
             }}) {{
                 ... on PostActionSuccess {{
                     post {{
