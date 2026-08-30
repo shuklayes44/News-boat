@@ -46,13 +46,13 @@ def generate_news_with_gemini():
 
     client = genai.Client(api_key=GEMINI_API_KEY)
 
-    # Official standard model for google-genai SDK
+    # Required exact model for new google-genai SDK
     for attempt in range(3):
         try:
-response = client.models.generate_content(
-    model='gemini-3.6-flash',
-    contents=prompt,
-)
+            response = client.models.generate_content(
+                model='gemini-3.6-flash',
+                contents=prompt,
+            )
             text = response.text.strip()
             if len(text) > 240:
                 text = text[:237] + "..."
