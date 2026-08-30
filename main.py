@@ -112,11 +112,11 @@ def send_to_buffer_graphql(post_text):
         print("Error: Channels nahi mile!", ch_data)
         return
 
-    # Unique image seed for every post based on timestamp
+    # Dynamic seed based on current timestamp for unique graphics every time
     timestamp_seed = int(time.time())
     news_image_url = f"https://picsum.photos/seed/{timestamp_seed}/1200/675"
 
-    # 3. Post to Channels
+    # 3. Post to Channels (Instant Share Mode)
     for ch in channels:
         ch_id = ch.get("id")
         service = ch.get("service")
@@ -135,7 +135,7 @@ def send_to_buffer_graphql(post_text):
                 channelId: "{ch_id}",
                 text: {requests.compat.json.dumps(post_text)},
                 schedulingType: automatic,
-                mode: addToQueue{metadata_param}{media_input}
+                mode: shareNow{metadata_param}{media_input}
             }}) {{
                 ... on PostActionSuccess {{
                     post {{
