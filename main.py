@@ -121,12 +121,13 @@ def send_to_buffer_graphql(post_text):
         ch_id = ch.get("id")
         service = ch.get("service")
         
-        # Proper Variables Structured Payload
+        # Fixed Payload with Mandatory schedulingType
         if service.lower() == 'instagram':
             input_payload = {
                 "channelId": ch_id,
                 "text": post_text,
                 "mode": "shareNow",
+                "schedulingType": "automatic",
                 "assets": {
                     "image": {
                         "url": news_image_url
@@ -144,6 +145,7 @@ def send_to_buffer_graphql(post_text):
                 "channelId": ch_id,
                 "text": post_text,
                 "mode": "shareNow",
+                "schedulingType": "automatic",
                 "assets": {
                     "image": {
                         "url": news_image_url
