@@ -1,5 +1,6 @@
 import os
 import requests
+import random
 from google import genai
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -10,21 +11,38 @@ def generate_news_with_gemini():
         print("Error: GEMINI_API_KEY Missing hai!")
         return None
 
+    # Topic Pool for WorldScopeX
+    topics = [
+        "India National News & Major Governance/Infrastructure Update",
+        "Global Geopolitics & High-Impact World News",
+        "Indian & Global Economy, Stock Market, Business or Startups",
+        "Latest Breakthrough Tech, AI Innovation or Frontier Gadgets",
+        "Indian Politics & Major Policy Updates"
+    ]
+    
+    selected_topic = random.choice(topics)
+    print(f"Generating post for WorldScopeX Category: {selected_topic}")
+
     try:
         client = genai.Client(api_key=GEMINI_API_KEY)
-        # Indian English + 200-230 characters range
         prompt = (
-            "Write a short, engaging tech news update in simple Indian English. "
-            "Use 1 emoji headline, 1 concise detail bullet, and hashtags like #TechNews #IndiaTech. "
-            "STRICT REQUIREMENT: Total output text MUST BE BETWEEN 200 AND 230 CHARACTERS."
+            f"You are the head content strategist for 'WorldScopeX'. Write a high-engagement viral news post about: {selected_topic}.\n"
+            "STRICT RULES:\n"
+            "1. Language: Crisp Indian English.\n"
+            "2. Structure:\n"
+            "   - Line 1: 🚨 [CAPS HOOK HEADLINE] with Emoji\n"
+            "   - Line 2-3: Core facts / Key numbers & metrics\n"
+            "   - Line 4: Engagement Question (e.g., 'What is your take on this?')\n"
+            "   - Line 5: #WorldScopeX #India #WorldNews #Economy\n"
+            "3. Character Limit: MUST BE STRICTLY BETWEEN 200 AND 230 CHARACTERS TOTAL."
         )
+        
         response = client.models.generate_content(
             model='gemini-3.6-flash',
             contents=prompt,
         )
         text = response.text.strip()
         
-        # Twitter safety cap
         if len(text) > 240:
             text = text[:237] + "..."
         return text
@@ -43,7 +61,7 @@ def send_to_buffer_graphql(post_text):
         "Content-Type": "application/json"
     }
     
-    # 1. Fetch Account Organizations
+    # 1. Fetch Organization ID
     account_query = {
         "query": """
         query GetAccount {
@@ -90,14 +108,21 @@ def send_to_buffer_graphql(post_text):
         print("Error: Channels nahi mile!", ch_data)
         return
 
-    # Direct valid JPG image link for Instagram
-    news_image_url = "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1080&q=80"
+    # Dynamic seed image URL for news banner
+    random_id = random.randint(100, 9999)
+    news_image_url = f"https://picsum.photos/seed/{random_id}/1080/1080"
 
-    # 3. Clean Mutation for all channels
+    # 3. Execution Loop across connected accounts
     for ch in channels:
         ch_id = ch.get("id")
         service = ch.get("service")
         
+        # Fixed Instagram Specific Input Schema
+        if service.lower() == 'instagram':
+            metadata_param = ', metadata: { instagram: { type: post } }'
+        else:
+            metadata_param = ''
+
         media_input = f', assets: {{ image: {{ url: "{news_image_url}" }} }}'
 
         mutation = f"""
@@ -106,7 +131,7 @@ def send_to_buffer_graphql(post_text):
                 channelId: "{ch_id}",
                 text: {requests.compat.json.dumps(post_text)},
                 schedulingType: automatic,
-                mode: shareNow{media_input}
+                mode: shareNow{metadata_param}{media_input}
             }}) {{
                 ... on PostActionSuccess {{
                     post {{
@@ -127,7 +152,7 @@ def send_to_buffer_graphql(post_text):
 if __name__ == "__main__":
     text = generate_news_with_gemini()
     if text:
-        print("News generated via Gemini AI! Sending to Buffer...")
+        print(f"Generated News Text for WorldScopeX:\n{text}\n\nSending to Buffer...")
         send_to_buffer_graphql(text)
     else:
         print("News generation failed!")
