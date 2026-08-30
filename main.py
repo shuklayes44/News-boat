@@ -5,13 +5,13 @@ import random
 import io
 from google import genai
 
-# Try loading PIL safely so code never crashes
+# Try loading PIL safely
 try:
     from PIL import Image
     HAS_PIL = True
 except ImportError:
     HAS_PIL = False
-    print("Warning: Pillow missing. Will use direct high-quality photo.")
+    print("Warning: Pillow missing in environment. Using direct image.")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 BUFFER_ACCESS_TOKEN = os.getenv("BUFFER_ACCESS_TOKEN")
@@ -46,10 +46,11 @@ def generate_news_with_gemini():
 
     client = genai.Client(api_key=GEMINI_API_KEY)
 
+    # Tested Working Model
     for attempt in range(3):
         try:
             response = client.models.generate_content(
-                model='gemini-2.5-flash',
+                model='gemini-1.5-flash',
                 contents=prompt,
             )
             text = response.text.strip()
@@ -77,7 +78,7 @@ def get_topic_matched_image_url(image_keywords):
                 bg = Image.open(io.BytesIO(res.content)).convert("RGBA")
                 logo = Image.open(logo_path).convert("RGBA")
 
-                logo_w = 180
+                logo_w = 200
                 w_percent = logo_w / float(logo.size[0])
                 logo_h = int(float(logo.size[1]) * float(w_percent))
                 logo = logo.resize((logo_w, logo_h), Image.Resampling.LANCZOS)
@@ -92,7 +93,7 @@ def get_topic_matched_image_url(image_keywords):
         except Exception as e:
             print(f"Watermark overlay error: {e}. Using direct image URL.")
     else:
-        print("Using direct HQ photo URL.")
+        print("Using direct image URL.")
 
     return base_image_url
 
