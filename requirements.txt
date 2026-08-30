@@ -1,3 +1,4 @@
 Pillow
+PIL
 requests
 google-genai
