@@ -112,45 +112,66 @@ def send_to_buffer_graphql(post_text):
         print("Error: Channels nahi mile!", ch_data)
         return
 
-    # Dynamic seed based on current timestamp for unique graphics every time
+    # Timestamp seed for unique image
     timestamp_seed = int(time.time())
     news_image_url = f"https://picsum.photos/seed/{timestamp_seed}/1200/675"
 
-    # 3. Post to Channels (Instant Share Mode)
+    # 3. Direct Instant Post to Channels
     for ch in channels:
         ch_id = ch.get("id")
         service = ch.get("service")
         
-        # Instagram Metadata Fix
+        # Proper Variables Structured Payload
         if service.lower() == 'instagram':
-            metadata_param = ', metadata: { instagram: { type: post, shouldShareToFeed: true } }'
+            input_payload = {
+                "channelId": ch_id,
+                "text": post_text,
+                "mode": "shareNow",
+                "assets": {
+                    "image": {
+                        "url": news_image_url
+                    }
+                },
+                "metadata": {
+                    "instagram": {
+                        "type": "post",
+                        "shouldShareToFeed": True
+                    }
+                }
+            }
         else:
-            metadata_param = ''
+            input_payload = {
+                "channelId": ch_id,
+                "text": post_text,
+                "mode": "shareNow",
+                "assets": {
+                    "image": {
+                        "url": news_image_url
+                    }
+                }
+            }
 
-        media_input = f', assets: {{ image: {{ url: "{news_image_url}" }} }}'
-
-        mutation = f"""
-        mutation {{
-            createPost(input: {{
-                channelId: "{ch_id}",
-                text: {requests.compat.json.dumps(post_text)},
-                schedulingType: automatic,
-                mode: shareNow{metadata_param}{media_input}
-            }}) {{
-                ... on PostActionSuccess {{
-                    post {{
+        mutation = """
+        mutation CreatePost($input: CreatePostInput!) {
+            createPost(input: $input) {
+                ... on PostActionSuccess {
+                    post {
                         id
                         status
-                    }}
-                }}
-                ... on MutationError {{
+                    }
+                }
+                ... on MutationError {
                     message
-                }}
-            }}
-        }}
+                }
+            }
+        }
         """
         
-        post_res = requests.post(url, json={"query": mutation}, headers=headers)
+        post_res = requests.post(
+            url, 
+            json={"query": mutation, "variables": {"input": input_payload}}, 
+            headers=headers
+        )
         print(f"Result for {service} ({ch_id}):", post_res.text)
 
 if __name__ == "__main__":
