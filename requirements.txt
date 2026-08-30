@@ -1,6 +1,3 @@
-feedparser
-google-genai
-Pillow
-twikit
-instagrapi
+pillow
 requests
+google-genai
