@@ -37,11 +37,11 @@ def generate_news_with_gemini():
 
     client = genai.Client(api_key=GEMINI_API_KEY)
 
-    # Correct production model name for google-genai SDK
+    # Exact API requirement: gemini-2.5-flash
     for attempt in range(3):
         try:
             response = client.models.generate_content(
-                model='gemini-2.0-flash',
+                model='gemini-2.5-flash',
                 contents=prompt,
             )
             text = response.text.strip()
@@ -105,7 +105,7 @@ def send_to_buffer_graphql(post_text):
         }
     }
     
-    ch_res = requests.post(url, json=ch_query, headers=headers) if 'ch_query' in locals() else requests.post(url, json=channels_query, headers=headers)
+    ch_res = requests.post(url, json=channels_query, headers=headers)
     ch_data = ch_res.json()
     channels = ch_data.get("data", {}).get("channels", [])
 
