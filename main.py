@@ -5,7 +5,7 @@ import random
 import io
 from google import genai
 
-# Try loading PIL safely
+# Try loading PIL safely for watermark overlay
 try:
     from PIL import Image
     HAS_PIL = True
@@ -46,11 +46,11 @@ def generate_news_with_gemini():
 
     client = genai.Client(api_key=GEMINI_API_KEY)
 
-    # Tested Working Model
+    # Official standard model for google-genai SDK
     for attempt in range(3):
         try:
             response = client.models.generate_content(
-                model='gemini-1.5-flash',
+                model='gemini-2.0-flash',
                 contents=prompt,
             )
             text = response.text.strip()
