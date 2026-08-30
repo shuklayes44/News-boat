@@ -1,9 +1,10 @@
 name: Run News Bot
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: '0 */6 * * *'
+    # Har 4 ghante me ek baar run hoga (IST: 1:30 AM, 5:30 AM, 9:30 AM, 1:30 PM, 5:30 PM, 9:30 PM)
+    - cron: '0 0,4,8,12,16,20 * * *'
+  workflow_dispatch: # Manual test button
 
 jobs:
   run-python-bot:
@@ -15,12 +16,11 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.10'
 
       - name: Install Dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install google-genai requests
+          pip install requests google-genai
 
       - name: Run Main Script
         env:
