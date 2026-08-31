@@ -13,13 +13,13 @@ HEADERS = {
 }
 
 def fetch_live_google_news(topic_query):
-    """Fetches real-time headlines directly using Google News RSS feed"""
+    """Fetches real-time live headlines from Google News RSS feed"""
     formatted_query = topic_query.replace(' ', '+')
     rss_url = f"https://news.google.com/rss/search?q={formatted_query}&hl=en-IN&gl=IN&ceid=IN:en"
     try:
         feed = feedparser.parse(rss_url)
         if feed.entries:
-            # Random pick from top 10 to avoid repetitive posts
+            # Pick a random fresh entry from top 10 live news items to avoid repetitive posts
             selected = random.choice(feed.entries[:10])
             return selected.title
     except Exception as e:
@@ -31,32 +31,35 @@ def generate_news_with_gemini():
         print("Error: GEMINI_API_KEY Missing!")
         return None, "space"
 
+    # Diverse search topics for fresh news every run
     topics = [
-        ("technology artificial intelligence hardware", "technology"),
-        ("stock market finance global business", "business"),
-        ("geopolitics international relations diplomacy", "politics"),
-        ("space exploration defense technology science", "space"),
-        ("India infrastructure highways mega projects", "infrastructure")
+        ("technology artificial intelligence breakthroughs", "technology"),
+        ("stock market finance global economic trends", "finance"),
+        ("geopolitics international news diplomacy world", "geopolitics"),
+        ("space exploration NASA ISRO defense science", "space"),
+        ("India infrastructure highways mega development", "infrastructure"),
+        ("electric vehicles renewable energy future tech", "energy"),
+        ("cybersecurity cloud computing digital innovation", "cybersecurity")
     ]
     
     selected_query, image_keyword = random.choice(topics)
     print(f"Fetching Live Google News for query: '{selected_query}'...")
     
     live_headline = fetch_live_google_news(selected_query)
-    prompt_content = f"LIVE BREAKING NEWS HEADLINE: '{live_headline}'" if live_headline else f"TOPIC: '{selected_query}'"
+    prompt_content = f"REALTIME LIVE HEADLINE: '{live_headline}'" if live_headline else f"TOPIC AREA: '{selected_query}'"
 
     prompt = (
-        f"You are the senior journalist for 'WorldScopeX'. Create a high-impact viral post based on this live news:\n"
+        f"You are the senior news editor for 'WorldScopeX'. Write a unique, engaging viral social media post based on this real news:\n"
         f"{prompt_content}\n\n"
-        "STRICT RULES:\n"
-        "1. Language: Professional Indian English.\n"
+        "STRICT FORMATTING RULES:\n"
+        "1. Language: Professional, concise Indian English.\n"
         "2. Structure:\n"
-        "   - Line 1: 🚨 [CAPS HOOK HEADLINE] with Emoji\n"
-        "   - Line 2-3: Core factual news summary\n"
-        "   - Line 4: Engagement question\n"
-        "   - Line 5: 4-5 dynamic trending hashtags matching THIS specific news (e.g. #BreakingNews #TechNews #WorldScopeX)\n"
-        "3. STRICTLY DO NOT ADD ANY NUMERIC CODE TAGS OR SYSTEM CODES LIKE #WSX_1234 AT THE END.\n"
-        "4. Total Length: Strictly under 240 characters."
+        "   - Line 1: 🚨 [CAPS HOOK HEADLINE] with relevant emoji\n"
+        "   - Line 2-3: Core factual news breakdown\n"
+        "   - Line 4: Short engagement question for readers\n"
+        "   - Line 5: 4-5 dynamic trending hashtags matching THIS exact news (e.g. #BreakingNews #TechUpdate #WorldScopeX)\n"
+        "3. CRITICAL: DO NOT add any system codes, random numbers, or #WSX_1234 tags.\n"
+        "4. Keep the text under 240 characters total."
     )
 
     client = genai.Client(api_key=GEMINI_API_KEY)
@@ -74,18 +77,33 @@ def generate_news_with_gemini():
             
     return None, "space"
 
-def get_direct_stock_image_url(keyword):
-    """Returns stable direct HD Unsplash Image URL without rendering overhead"""
-    images_pool = [
-        "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1080&q=80",
-        "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=1080&q=80",
-        "https://images.unsplash.com/photo-1541872703-74c5e44368f9?w=1080&q=80",
-        "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1080&q=80",
-        "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=1080&q=80",
-        "https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=1080&q=80",
-        "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=1080&q=80"
-    ]
-    return random.choice(images_pool)
+def get_topic_stock_image_url(keyword):
+    """Fetches high quality stock image mapped to news category"""
+    category_images = {
+        "technology": [
+            "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1080&q=80",
+            "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=1080&q=80"
+        ],
+        "finance": [
+            "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=1080&q=80",
+            "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=1080&q=80"
+        ],
+        "space": [
+            "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1080&q=80",
+            "https://images.unsplash.com/photo-1517976487492-5750f3195933?w=1080&q=80"
+        ],
+        "geopolitics": [
+            "https://images.unsplash.com/photo-1541872703-74c5e44368f9?w=1080&q=80",
+            "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=1080&q=80"
+        ],
+        "infrastructure": [
+            "https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=1080&q=80",
+            "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=1080&q=80"
+        ]
+    }
+    
+    pool = category_images.get(keyword, category_images["technology"])
+    return random.choice(pool)
 
 def send_to_buffer_graphql(post_text, image_url):
     if not BUFFER_ACCESS_TOKEN or not image_url:
@@ -141,7 +159,7 @@ def send_to_buffer_graphql(post_text, image_url):
 if __name__ == "__main__":
     text, image_keyword = generate_news_with_gemini()
     if text:
-        image_url = get_direct_stock_image_url(image_keyword)
+        image_url = get_topic_stock_image_url(image_keyword)
         print(f"Final Image URL: {image_url}")
         print(f"Post Text:\n{text}")
         send_to_buffer_graphql(text, image_url)
