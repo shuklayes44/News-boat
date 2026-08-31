@@ -3,18 +3,38 @@ import time
 import requests
 import random
 import io
+import base64
+import feedparser
 from google import genai
 
-# Try loading PIL safely for watermark overlay
 try:
     from PIL import Image
     HAS_PIL = True
 except ImportError:
     HAS_PIL = False
-    print("Warning: Pillow missing in environment. Using direct image.")
+    print("Warning: Pillow missing in environment.")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 BUFFER_ACCESS_TOKEN = os.getenv("BUFFER_ACCESS_TOKEN")
+
+def fetch_live_google_news(topic_query):
+    """Google News RSS Feed se exact live trending news fetch karta hai"""
+    formatted_query = topic_query.replace(' ', '+')
+    rss_url = f"https://news.google.com/rss/search?q={formatted_query}&hl=en-IN&gl=IN&ceid=IN:en"
+    
+    try:
+        feed = feedparser.parse(rss_url)
+        if feed.entries:
+            # Random top 3 live stories me se ek select karna (variability ke liye)
+            top_entries = feed.entries[:3]
+            selected_entry = random.choice(top_entries)
+            
+            title = selected_entry.title
+            return title
+    except Exception as e:
+        print(f"Google News RSS error: {e}")
+    
+    return None
 
 def generate_news_with_gemini():
     if not GEMINI_API_KEY:
@@ -22,31 +42,41 @@ def generate_news_with_gemini():
         return None, "news"
 
     topics = [
-        ("Major Global Tech Breakthroughs & AI Hardware Innovations", "technology,artificial intelligence,robotics"),
-        ("World Economy, Stock Markets & Global Trade Developments", "stock market,finance,business"),
-        ("Geopolitics, International Relations & Diplomacy Updates", "geopolitics,war,diplomacy"),
-        ("Space Exploration, Defense Tech & Science Discoveries", "space,rocket,galaxy"),
-        ("India Governance, Infrastructure & Mega Projects News", "infrastructure,highway,bridge,city")
+        ("technology artificial intelligence hardware", "technology,artificial intelligence,robotics"),
+        ("stock market finance global business", "stock market,finance,business"),
+        ("geopolitics international relations diplomacy", "geopolitics,war,diplomacy"),
+        ("space exploration defense technology science", "space,rocket,galaxy"),
+        ("India infrastructure highways mega projects", "infrastructure,highway,bridge,city")
     ]
     
-    selected_topic, image_keywords = random.choice(topics)
-    print(f"Generating post for WorldScopeX Topic: {selected_topic}")
+    selected_query, image_keywords = random.choice(topics)
+    print(f"Fetching Live Google News for query: '{selected_query}'...")
+    
+    live_headline = fetch_live_google_news(selected_query)
+    
+    if live_headline:
+        print(f"Live News Found: {live_headline}")
+        prompt_content = f"LIVE REAL BREAKING NEWS HEADLINE: '{live_headline}'"
+    else:
+        print("Fallback: Direct topic prompt using Gemini knowledge base.")
+        prompt_content = f"TOPIC: '{selected_query}'"
 
     prompt = (
-        f"You are the senior journalist for 'WorldScopeX'. Write a real-time viral news summary on: {selected_topic}.\n"
+        f"You are the senior journalist for 'WorldScopeX'. Transform the following input into a high-impact, factual viral post:\n"
+        f"{prompt_content}\n\n"
         "STRICT RULES:\n"
         "1. Language: Professional Indian English.\n"
-        "2. Structure:\n"
+        "2. Do NOT invent fake facts. Use real info from the headline.\n"
+        "3. Structure:\n"
         "   - Line 1: 🚨 [CAPS HOOK HEADLINE] with relevant Emoji\n"
-        "   - Line 2-3: Core factual news update with key figures or numbers\n"
+        "   - Line 2-3: Core factual news summary (numbers/figures if available)\n"
         "   - Line 4: Short engagement question\n"
         "   - Line 5: #WorldScopeX #NewsUpdate #Global #Tech\n"
-        "3. Length: Strictly between 200 and 230 characters TOTAL."
+        "4. Length: Strictly between 200 and 230 characters TOTAL."
     )
 
     client = genai.Client(api_key=GEMINI_API_KEY)
 
-    # Required exact model for new google-genai SDK
     for attempt in range(3):
         try:
             response = client.models.generate_content(
@@ -61,8 +91,23 @@ def generate_news_with_gemini():
             print(f"Attempt {attempt+1} failed: {e}")
             time.sleep(3)
 
-    print("All Gemini API attempts failed.")
     return None, "news"
+
+def upload_to_imgbb(image_bytes):
+    api_key = "3b0ad8ee6d8606aa1dce444bf19b45bb" 
+    encoded_string = base64.b64encode(image_bytes).decode('utf-8')
+    payload = {
+        'key': api_key,
+        'image': encoded_string
+    }
+    try:
+        res = requests.post('https://api.imgbb.com/1/upload', data=payload, timeout=20)
+        data = res.json()
+        if data.get('success'):
+            return data['data']['url']
+    except Exception as e:
+        print(f"Imgbb upload error: {e}")
+    return None
 
 def get_topic_matched_image_url(image_keywords):
     keyword = random.choice(image_keywords.split(','))
@@ -72,7 +117,7 @@ def get_topic_matched_image_url(image_keywords):
     logo_path = "logo.png"
     if HAS_PIL and os.path.exists(logo_path):
         try:
-            print("Logo found in repo! Applying WorldScopeX Watermark...")
+            print("Logo found! Merging WorldScopeX Watermark...")
             res = requests.get(base_image_url, timeout=15)
             if res.status_code == 200:
                 bg = Image.open(io.BytesIO(res.content)).convert("RGBA")
@@ -88,13 +133,18 @@ def get_topic_matched_image_url(image_keywords):
                 bg.paste(logo, (pos_x, pos_y), logo)
 
                 final_img = bg.convert("RGB")
-                final_img.save("branded_post.jpg", quality=95)
-                print("Branded image created successfully.")
+                img_byte_arr = io.BytesIO()
+                final_img.save(img_byte_arr, format='JPEG', quality=95)
+                
+                print("Uploading branded image for public URL...")
+                hosted_url = upload_to_imgbb(img_byte_arr.getvalue())
+                if hosted_url:
+                    print(f"Uploaded Branded Image URL: {hosted_url}")
+                    return hosted_url
         except Exception as e:
-            print(f"Watermark overlay error: {e}. Using direct image URL.")
-    else:
-        print("Using direct image URL.")
-
+            print(f"Watermark overlay error: {e}")
+            
+    print("Using direct background image URL.")
     return base_image_url
 
 def send_to_buffer_graphql(post_text, image_url):
@@ -108,60 +158,25 @@ def send_to_buffer_graphql(post_text, image_url):
         "Content-Type": "application/json"
     }
     
-    account_query = {
-        "query": """
-        query GetAccount {
-            account {
-                organizations {
-                    id
-                }
-            }
-        }
-        """
-    }
-    
+    account_query = {"query": "query GetAccount { account { organizations { id } } }"}
     acc_res = requests.post(url, json=account_query, headers=headers)
-    acc_data = acc_res.json()
-    orgs = acc_data.get("data", {}).get("account", {}).get("organizations", [])
+    orgs = acc_res.json().get("data", {}).get("account", {}).get("organizations", [])
     if not orgs:
-        print("Error: Organization nahi mili!", acc_data)
         return
-
     org_id = orgs[0].get("id")
 
     channels_query = {
-        "query": """
-        query GetChannels($input: ChannelsInput!) {
-            channels(input: $input) {
-                id
-                service
-            }
-        }
-        """,
-        "variables": {
-            "input": {
-                "organizationId": org_id
-            }
-        }
+        "query": "query GetChannels($input: ChannelsInput!) { channels(input: $input) { id service } }",
+        "variables": {"input": {"organizationId": org_id}}
     }
-    
     ch_res = requests.post(url, json=channels_query, headers=headers)
-    ch_data = ch_res.json()
-    channels = ch_data.get("data", {}).get("channels", [])
-
-    if not channels:
-        print("Error: Channels nahi mile!", ch_data)
-        return
+    channels = ch_res.json().get("data", {}).get("channels", [])
 
     for ch in channels:
         ch_id = ch.get("id")
         service = ch.get("service")
         
-        if service.lower() == 'instagram':
-            metadata_param = ', metadata: { instagram: { type: post, shouldShareToFeed: true } }'
-        else:
-            metadata_param = ''
-
+        metadata_param = ', metadata: { instagram: { type: post, shouldShareToFeed: true } }' if service.lower() == 'instagram' else ''
         media_input = f', assets: [{{ image: {{ url: "{image_url}" }} }}]'
 
         mutation = f"""
@@ -173,10 +188,7 @@ def send_to_buffer_graphql(post_text, image_url):
                 mode: shareNow{metadata_param}{media_input}
             }}) {{
                 ... on PostActionSuccess {{
-                    post {{
-                        id
-                        status
-                    }}
+                    post {{ id status }}
                 }}
                 ... on MutationError {{
                     message
@@ -184,7 +196,6 @@ def send_to_buffer_graphql(post_text, image_url):
             }}
         }}
         """
-        
         post_res = requests.post(url, json={"query": mutation}, headers=headers)
         print(f"Result for {service} ({ch_id}):", post_res.text)
 
@@ -194,5 +205,3 @@ if __name__ == "__main__":
         image_url = get_topic_matched_image_url(image_keywords)
         print(f"Generated News Text for WorldScopeX:\n{text}\n\nSending to Buffer...")
         send_to_buffer_graphql(text, image_url)
-    else:
-        print("News generation failed!")
