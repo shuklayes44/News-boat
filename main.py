@@ -68,8 +68,6 @@ def generate_news_with_gemini():
                 contents=prompt,
             )
             text = response.text.strip()
-            
-            # Anti-Duplicate Guard: Unique timestamp tag to prevent identical posts
             time_code = datetime.utcnow().strftime("%M%S")
             unique_tag = f" #WSX_{time_code}"
             
@@ -84,76 +82,81 @@ def generate_news_with_gemini():
     return None, "space"
 
 def create_solid_branded_canvas():
-    """Fallback Canvas with dynamic colorful themes"""
-    colors = [(15, 23, 42), (24, 24, 27), (15, 30, 45), (30, 20, 40)]
+    colors = [(15, 23, 42), (24, 24, 27), (15, 30, 45)]
     bg_color = random.choice(colors)
     img = Image.new('RGB', (1080, 1080), color=bg_color)
     draw = ImageDraw.Draw(img)
-    
     draw.rectangle([30, 30, 1050, 1050], outline=(59, 130, 246), width=6)
-    draw.rectangle([50, 50, 1030, 1030], outline=(255, 215, 0), width=2)
     
     output = io.BytesIO()
-    img.save(output, format="JPEG", quality=95)
+    img.save(output, format="JPEG", quality=90)
     return output.getvalue()
 
 def apply_watermark_logo(bg_bytes):
     try:
         bg = Image.open(io.BytesIO(bg_bytes)).convert("RGBA")
-    except Exception as e:
-        print(f"Corrupted byte stream: {e}. Generating new canvas...")
+    except Exception:
         bg = Image.open(io.BytesIO(create_solid_branded_canvas())).convert("RGBA")
 
     try:
-        # Check Local logo.png in GitHub Repo
         if os.path.exists("logo.png"):
             logo = Image.open("logo.png").convert("RGBA")
             logo_w = 220
             w_percent = logo_w / float(logo.size[0])
             logo_h = int(float(logo.size[1]) * float(w_percent))
             logo = logo.resize((logo_w, logo_h), Image.Resampling.LANCZOS)
-            
-            pos_x = bg.width - logo_w - 30
-            pos_y = 30
-            bg.paste(logo, (pos_x, pos_y), logo)
+            bg.paste(logo, (bg.width - logo_w - 30, 30), logo)
             print("LOGO EMBED SUCCESS: logo.png applied!")
         else:
             print("LOGO WARNING: logo.png not found. Drawing fallback badge...")
             draw = ImageDraw.Draw(bg)
-            
-            badge_w, badge_h = 240, 55
-            x1 = bg.width - badge_w - 30
-            y1 = 30
-            x2 = bg.width - 30
-            y2 = 30 + badge_h
-            
-            draw.rectangle([x1, y1, x2, y2], fill=(15, 23, 42, 235), outline=(255, 215, 0, 255), width=2)
-            draw.text((x1 + 25, y1 + 18), "WORLDSCOPEX", fill=(255, 255, 255, 255))
+            draw.rectangle([bg.width - 270, 30, bg.width - 30, 85], fill=(15, 23, 42, 235), outline=(255, 215, 0, 255), width=2)
+            draw.text((bg.width - 240, 50), "WORLDSCOPEX", fill=(255, 255, 255, 255))
 
         output = io.BytesIO()
-        bg.convert("RGB").save(output, format="JPEG", quality=95)
+        bg.convert("RGB").save(output, format="JPEG", quality=90)
         return output.getvalue()
     except Exception as e:
         print(f"Watermark error: {e}")
         return bg_bytes
 
-def upload_to_imgbb(image_bytes):
-    api_key = "3b0ad8ee6d8606aa1dce444bf19b45bb"
+def upload_image_fail_safe(image_bytes):
     encoded_string = base64.b64encode(image_bytes).decode('utf-8')
-    payload = {'key': api_key, 'image': encoded_string}
+    
+    # Primary: ImgBB
     try:
-        res = requests.post('https://api.imgbb.com/1/upload', data=payload, timeout=25)
+        res = requests.post(
+            'https://api.imgbb.com/1/upload',
+            data={'key': '3b0ad8ee6d8606aa1dce444bf19b45bb', 'image': encoded_string},
+            timeout=25
+        )
         data = res.json()
         if data.get('success'):
             url = data['data']['url']
-            print(f"ImgBB Upload Success: {url}")
+            print(f"ImgBB Success: {url}")
             return url
     except Exception as e:
-        print(f"ImgBB Upload Error: {e}")
-    return None
+        print(f"ImgBB Primary Failed: {e}")
+
+    # Secondary Backup Uploader (FreeImageHost)
+    try:
+        res = requests.post(
+            'https://freeimage.host/api/1/upload',
+            data={'key': '6d207e641437130e56700870467824c3', 'action': 'upload', 'source': encoded_string, 'format': 'json'},
+            timeout=25
+        )
+        data = res.json()
+        if data.get('status_code') == 200:
+            url = data['image']['url']
+            print(f"FreeImageHost Fallback Success: {url}")
+            return url
+    except Exception as e:
+        print(f"Backup Image Host Failed: {e}")
+
+    # Hard Guarantee Link
+    return "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1080&q=80"
 
 def get_branded_image_url(keyword):
-    # Diverse Stock Images to prevent dynamic repetition
     images_pool = [
         "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1080&q=80",
         "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=1080&q=80",
@@ -163,22 +166,17 @@ def get_branded_image_url(keyword):
     ]
     
     selected_url = random.choice(images_pool)
-    
     try:
         print(f"Fetching stock image for '{keyword}'...")
         res = requests.get(selected_url, headers=HEADERS, timeout=15)
-        if res.status_code == 200 and len(res.content) > 5000:
+        if res.status_code == 200 and len(res.content) > 3000:
             watermarked_bytes = apply_watermark_logo(res.content)
-            hosted_url = upload_to_imgbb(watermarked_bytes)
-            if hosted_url:
-                return hosted_url
+            return upload_image_fail_safe(watermarked_bytes)
     except Exception as e:
-        print(f"Stock image fetch failed: {e}")
+        print(f"Stock image fetch error: {e}")
 
-    # Fallback Canvas with Logo
-    print("Generating dynamic branded canvas fallback...")
     fallback_bytes = apply_watermark_logo(create_solid_branded_canvas())
-    return upload_to_imgbb(fallback_bytes)
+    return upload_image_fail_safe(fallback_bytes)
 
 def send_to_buffer_graphql(post_text, image_url):
     if not BUFFER_ACCESS_TOKEN or not image_url:
