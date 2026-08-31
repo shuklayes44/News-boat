@@ -27,17 +27,17 @@ def fetch_live_google_news(topic_query):
 def generate_news_with_gemini():
     if not GEMINI_API_KEY:
         print("Error: GEMINI_API_KEY Missing!")
-        return None, "news"
+        return None
 
     topics = [
-        ("technology artificial intelligence hardware", "technology"),
-        ("stock market finance global business", "business"),
-        ("geopolitics international relations diplomacy", "world"),
-        ("space exploration defense technology science", "space"),
-        ("India infrastructure highways mega projects", "city")
+        "technology artificial intelligence hardware",
+        "stock market finance global business",
+        "geopolitics international relations diplomacy",
+        "space exploration defense technology science",
+        "India infrastructure highways mega projects"
     ]
     
-    selected_query, image_keyword = random.choice(topics)
+    selected_query = random.choice(topics)
     print(f"Fetching Live Google News for query: '{selected_query}'...")
     
     live_headline = fetch_live_google_news(selected_query)
@@ -73,12 +73,12 @@ def generate_news_with_gemini():
             text = response.text.strip()
             if len(text) > 240:
                 text = text[:237] + "..."
-            return text, image_keyword
+            return text
         except Exception as e:
             print(f"Attempt {attempt+1} failed: {e}")
             time.sleep(3)
 
-    return None, "news"
+    return None
 
 def upload_to_imgbb(image_bytes):
     api_key = "3b0ad8ee6d8606aa1dce444bf19b45bb" 
@@ -96,13 +96,19 @@ def upload_to_imgbb(image_bytes):
         print(f"ImgBB upload error: {e}")
     return None
 
-def get_valid_public_image_url(keyword):
-    # Dynamic high quality source URL
-    image_source_url = f"https://source.unsplash.com/1200x675/?{keyword}"
+def get_guaranteed_public_image_url():
+    # High-resolution stable stock images stream
+    stock_urls = [
+        "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1200",
+        "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1200",
+        "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1200",
+        "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=1200"
+    ]
+    selected_url = random.choice(stock_urls)
     
     try:
-        print("Fetching background image...")
-        res = requests.get(image_source_url, timeout=15)
+        print("Fetching background image stream...")
+        res = requests.get(selected_url, timeout=15)
         if res.status_code == 200:
             print("Uploading image to ImgBB for permanent public URL...")
             hosted_url = upload_to_imgbb(res.content)
@@ -111,9 +117,9 @@ def get_valid_public_image_url(keyword):
                 return hosted_url
     except Exception as e:
         print(f"Image download/upload error: {e}")
-        
-    # Reliable static fallback image URL
-    return "https://i.ibb.co/L8v8zN6/news-fallback.jpg"
+
+    # Solid Fallback direct CDN image URL
+    return "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1200"
 
 def send_to_buffer_graphql(post_text, image_url):
     if not BUFFER_ACCESS_TOKEN:
@@ -168,8 +174,8 @@ def send_to_buffer_graphql(post_text, image_url):
         print(f"Result for {service} ({ch_id}):", post_res.text)
 
 if __name__ == "__main__":
-    text, image_keyword = generate_news_with_gemini()
+    text = generate_news_with_gemini()
     if text:
-        image_url = get_valid_public_image_url(image_keyword)
+        image_url = get_guaranteed_public_image_url()
         print(f"Generated News Text for WorldScopeX:\n{text}\n\nSending to Buffer...")
         send_to_buffer_graphql(text, image_url)
