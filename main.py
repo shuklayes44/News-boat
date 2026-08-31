@@ -2,11 +2,8 @@ import os
 import time
 import requests
 import random
-import io
-import base64
 import feedparser
 from google import genai
-from PIL import Image, ImageDraw
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 BUFFER_ACCESS_TOKEN = os.getenv("BUFFER_ACCESS_TOKEN")
@@ -16,14 +13,14 @@ HEADERS = {
 }
 
 def fetch_live_google_news(topic_query):
+    """Fetches real-time headlines directly using Google News RSS feed"""
     formatted_query = topic_query.replace(' ', '+')
-    # YAHAN RSS FEED CHAL RAHA HAI
     rss_url = f"https://news.google.com/rss/search?q={formatted_query}&hl=en-IN&gl=IN&ceid=IN:en"
     try:
         feed = feedparser.parse(rss_url)
         if feed.entries:
-            # Top 5 headlines me se random headline fetch karna duplication prevent karta hai
-            selected = random.choice(feed.entries[:5])
+            # Random pick from top 10 to avoid repetitive posts
+            selected = random.choice(feed.entries[:10])
             return selected.title
     except Exception as e:
         print(f"Google News RSS Error: {e}")
@@ -45,22 +42,21 @@ def generate_news_with_gemini():
     selected_query, image_keyword = random.choice(topics)
     print(f"Fetching Live Google News for query: '{selected_query}'...")
     
-    # Live headline fetch logic call
     live_headline = fetch_live_google_news(selected_query)
-    prompt_content = f"LIVE BREAKING NEWS: '{live_headline}'" if live_headline else f"TOPIC: '{selected_query}'"
+    prompt_content = f"LIVE BREAKING NEWS HEADLINE: '{live_headline}'" if live_headline else f"TOPIC: '{selected_query}'"
 
     prompt = (
-        f"You are the senior journalist for 'WorldScopeX'. Create a high-impact viral post:\n"
+        f"You are the senior journalist for 'WorldScopeX'. Create a high-impact viral post based on this live news:\n"
         f"{prompt_content}\n\n"
         "STRICT RULES:\n"
         "1. Language: Professional Indian English.\n"
-        "2. Factual news summary.\n"
-        "3. Structure:\n"
+        "2. Structure:\n"
         "   - Line 1: 🚨 [CAPS HOOK HEADLINE] with Emoji\n"
         "   - Line 2-3: Core factual news summary\n"
         "   - Line 4: Engagement question\n"
-        "   - Line 5: #WorldScopeX #NewsUpdate #Global #Tech\n"
-        "4. Total Length: Strictly 200 to 230 characters."
+        "   - Line 5: 4-5 dynamic trending hashtags matching THIS specific news (e.g. #BreakingNews #TechNews #WorldScopeX)\n"
+        "3. STRICTLY DO NOT ADD ANY NUMERIC CODE TAGS OR SYSTEM CODES LIKE #WSX_1234 AT THE END.\n"
+        "4. Total Length: Strictly under 240 characters."
     )
 
     client = genai.Client(api_key=GEMINI_API_KEY)
@@ -78,8 +74,74 @@ def generate_news_with_gemini():
             
     return None, "space"
 
-# ... (Logo rendering aur Buffer posting functions yahan intact hain) ...
+def get_direct_stock_image_url(keyword):
+    """Returns stable direct HD Unsplash Image URL without rendering overhead"""
+    images_pool = [
+        "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1080&q=80",
+        "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=1080&q=80",
+        "https://images.unsplash.com/photo-1541872703-74c5e44368f9?w=1080&q=80",
+        "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1080&q=80",
+        "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=1080&q=80",
+        "https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=1080&q=80",
+        "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=1080&q=80"
+    ]
+    return random.choice(images_pool)
+
+def send_to_buffer_graphql(post_text, image_url):
+    if not BUFFER_ACCESS_TOKEN or not image_url:
+        print("Error: BUFFER_ACCESS_TOKEN or Image URL Missing!")
+        return
+
+    url = "https://api.buffer.com/graphql"
+    headers = {
+        "Authorization": f"Bearer {BUFFER_ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    acc_res = requests.post(url, json={"query": "query GetAccount { account { organizations { id } } }"}, headers=headers)
+    orgs = acc_res.json().get("data", {}).get("account", {}).get("organizations", [])
+    if not orgs:
+        return
+    org_id = orgs[0].get("id")
+
+    ch_res = requests.post(
+        url,
+        json={"query": "query GetChannels($input: ChannelsInput!) { channels(input: $input) { id service } }", "variables": {"input": {"organizationId": org_id}}},
+        headers=headers
+    )
+    channels = ch_res.json().get("data", {}).get("channels", [])
+
+    for ch in channels:
+        ch_id = ch.get("id")
+        service = ch.get("service")
+        
+        metadata_param = ', metadata: { instagram: { type: post, shouldShareToFeed: true } }' if service.lower() == 'instagram' else ''
+        media_input = f', assets: [{{ image: {{ url: "{image_url}" }} }}]'
+
+        mutation = f"""
+        mutation {{
+            createPost(input: {{
+                channelId: "{ch_id}",
+                text: {requests.compat.json.dumps(post_text)},
+                schedulingType: automatic,
+                mode: shareNow{metadata_param}{media_input}
+            }}) {{
+                ... on PostActionSuccess {{
+                    post {{ id status }}
+                }}
+                ... on MutationError {{
+                    message
+                }}
+            }}
+        }}
+        """
+        post_res = requests.post(url, json={"query": mutation}, headers=headers)
+        print(f"Result for {service} ({ch_id}): {post_res.text}")
 
 if __name__ == "__main__":
     text, image_keyword = generate_news_with_gemini()
-    # (image processing aur buffer logic yahan run hogi)
+    if text:
+        image_url = get_direct_stock_image_url(image_keyword)
+        print(f"Final Image URL: {image_url}")
+        print(f"Post Text:\n{text}")
+        send_to_buffer_graphql(text, image_url)
