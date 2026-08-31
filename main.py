@@ -17,7 +17,6 @@ HEADERS = {
 }
 
 def get_repo_logo_path():
-    """Dynamically resolves logo path regardless of case or environment"""
     base_dir = os.path.dirname(os.path.abspath(__file__))
     possible_names = ["logo.png", "Logo.png", "LOGO.PNG", "logo.jpg", "logo.jpeg", "LOGO.JPG"]
     
@@ -25,7 +24,6 @@ def get_repo_logo_path():
         full_path = os.path.join(base_dir, name)
         if os.path.exists(full_path):
             return full_path
-        # Also check current working directory
         if os.path.exists(name):
             return name
     return None
@@ -118,24 +116,22 @@ def apply_watermark_logo(bg_bytes):
             print(f"LOGO EMBED SUCCESS: Found logo file at '{logo_path}'")
             logo = Image.open(logo_path).convert("RGBA")
             
-            # Resize Logo proportionally to fit nicely in Top-Right
             logo_w = 220
             w_percent = logo_w / float(logo.size[0])
             logo_h = int(float(logo.size[1]) * float(w_percent))
             logo = logo.resize((logo_w, logo_h), Image.Resampling.LANCZOS)
             
-            # Paste Logo in Top-Right Corner with margin
             pos_x = bg.width - logo_w - 30
             pos_y = 30
             bg.paste(logo, (pos_x, pos_y), logo)
         else:
-            print("LOGO WARNING: Logo file still not detected in repo. Drawing fallback brand badge...")
+            print("LOGO WARNING: logo.png not uploaded in repo root. Using fallback text overlay...")
             draw = ImageDraw.Draw(bg)
             draw.rectangle([bg.width - 270, 30, bg.width - 30, 85], fill=(15, 23, 42, 235), outline=(255, 215, 0, 255), width=2)
             draw.text((bg.width - 240, 50), "WORLDSCOPEX", fill=(255, 255, 255, 255))
 
         output = io.BytesIO()
-        bg.convert("RGB").save(output, format="JPEG", quality=92)
+        bg.convert("RGB").save(output, format="JPEG", quality=90)
         return output.getvalue()
     except Exception as e:
         print(f"Watermark rendering error: {e}")
@@ -154,27 +150,20 @@ def upload_image_fail_safe(image_bytes):
         data = res.json()
         if data.get('success'):
             url = data['data']['url']
-            print(f"ImgBB Uploaded Branded Image Successfully: {url}")
+            print(f"ImgBB Upload Success: {url}")
             return url
     except Exception as e:
         print(f"ImgBB Upload Failed: {e}")
 
-    # Backup Uploader: FreeImageHost
-    try:
-        res = requests.post(
-            'https://freeimage.host/api/1/upload',
-            data={'key': '6d207e641437130e56700870467824c3', 'action': 'upload', 'source': encoded_string, 'format': 'json'},
-            timeout=25
-        )
-        data = res.json()
-        if data.get('status_code') == 200:
-            url = data['image']['url']
-            print(f"FreeImageHost Uploaded Branded Image Successfully: {url}")
-            return url
-    except Exception as e:
-        print(f"FreeImageHost Upload Failed: {e}")
-
-    return None
+    # Backup Direct URL Guarantee (Never return None)
+    backup_urls = [
+        "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1080&q=80",
+        "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=1080&q=80",
+        "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1080&q=80"
+    ]
+    selected_backup = random.choice(backup_urls)
+    print(f"Using Guarantee Direct Stock URL Fallback: {selected_backup}")
+    return selected_backup
 
 def get_branded_image_url(keyword):
     images_pool = [
@@ -190,7 +179,6 @@ def get_branded_image_url(keyword):
         print(f"Fetching stock background image for '{keyword}'...")
         res = requests.get(selected_url, headers=HEADERS, timeout=15)
         if res.status_code == 200 and len(res.content) > 3000:
-            # Watermark logo ON top of fetched stock image
             watermarked_bytes = apply_watermark_logo(res.content)
             uploaded_url = upload_image_fail_safe(watermarked_bytes)
             if uploaded_url:
@@ -198,7 +186,6 @@ def get_branded_image_url(keyword):
     except Exception as e:
         print(f"Stock image fetch error: {e}")
 
-    # Fallback solid canvas if stock fetch fails
     fallback_bytes = apply_watermark_logo(create_solid_branded_canvas())
     return upload_image_fail_safe(fallback_bytes)
 
