@@ -6,6 +6,7 @@ import io
 import base64
 import feedparser
 from google import genai
+from PIL import Image, ImageDraw, ImageFont
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 BUFFER_ACCESS_TOKEN = os.getenv("BUFFER_ACCESS_TOKEN")
@@ -80,6 +81,39 @@ def generate_news_with_gemini():
 
     return None
 
+def add_logo_watermark(image_bytes):
+    try:
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+        width, height = img.size
+        
+        # Overlay canvas for semi-transparent logo background
+        overlay = Image.new('RGBA', img.size, (255, 255, 255, 0))
+        draw = ImageDraw.Draw(overlay)
+        
+        # Bottom-right branded logo badge box
+        box_w, box_h = int(width * 0.35), int(height * 0.12)
+        margin = int(width * 0.03)
+        x2 = width - margin
+        y2 = height - margin
+        x1 = x2 - box_w
+        y1 = y2 - box_h
+        
+        draw.rectangle([x1, y1, x2, y2], fill=(0, 0, 0, 180))
+        
+        # Load default font and add text logo
+        font = ImageFont.load_default()
+        draw.text((x1 + 15, y1 + 10), "WORLDSCOPEX", fill=(255, 255, 255, 255), font=font)
+        draw.text((x1 + 15, y1 + 25), "• LIVE NEWS •", fill=(255, 215, 0, 255), font=font)
+        
+        watermarked = Image.alpha_composite(img, overlay).convert("RGB")
+        
+        output_buffer = io.BytesIO()
+        watermarked.save(output_buffer, format="JPEG", quality=90)
+        return output_buffer.getvalue()
+    except Exception as e:
+        print(f"Logo Overlay Warning: {e}")
+        return image_bytes
+
 def upload_to_imgbb(image_bytes):
     api_key = "3b0ad8ee6d8606aa1dce444bf19b45bb" 
     encoded_string = base64.b64encode(image_bytes).decode('utf-8')
@@ -97,7 +131,6 @@ def upload_to_imgbb(image_bytes):
     return None
 
 def get_guaranteed_public_image_url():
-    # High-resolution stable stock images stream
     stock_urls = [
         "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1200",
         "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1200",
@@ -110,15 +143,17 @@ def get_guaranteed_public_image_url():
         print("Fetching background image stream...")
         res = requests.get(selected_url, timeout=15)
         if res.status_code == 200:
+            print("Adding WorldScopeX Logo Badge Overlay...")
+            processed_image = add_logo_watermark(res.content)
+            
             print("Uploading image to ImgBB for permanent public URL...")
-            hosted_url = upload_to_imgbb(res.content)
+            hosted_url = upload_to_imgbb(processed_image)
             if hosted_url:
                 print(f"Public Hosted Image URL: {hosted_url}")
                 return hosted_url
     except Exception as e:
         print(f"Image download/upload error: {e}")
 
-    # Solid Fallback direct CDN image URL
     return "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1200"
 
 def send_to_buffer_graphql(post_text, image_url):
