@@ -25,12 +25,9 @@ def fetch_live_google_news(topic_query):
     try:
         feed = feedparser.parse(rss_url)
         if feed.entries:
-            # Random top 3 live stories me se ek select karna (variability ke liye)
             top_entries = feed.entries[:3]
             selected_entry = random.choice(top_entries)
-            
-            title = selected_entry.title
-            return title
+            return selected_entry.title
     except Exception as e:
         print(f"Google News RSS error: {e}")
     
@@ -136,15 +133,24 @@ def get_topic_matched_image_url(image_keywords):
                 img_byte_arr = io.BytesIO()
                 final_img.save(img_byte_arr, format='JPEG', quality=95)
                 
-                print("Uploading branded image for public URL...")
+                print("Uploading branded image to ImgBB for public URL...")
                 hosted_url = upload_to_imgbb(img_byte_arr.getvalue())
                 if hosted_url:
-                    print(f"Uploaded Branded Image URL: {hosted_url}")
+                    print(f"Public Branded Image URL: {hosted_url}")
                     return hosted_url
         except Exception as e:
             print(f"Watermark overlay error: {e}")
             
-    print("Using direct background image URL.")
+    print("Fallback: Uploading base image to ImgBB...")
+    try:
+        res = requests.get(base_image_url, timeout=15)
+        if res.status_code == 200:
+            hosted_url = upload_to_imgbb(res.content)
+            if hosted_url:
+                return hosted_url
+    except Exception as e:
+        print(f"Direct base image upload error: {e}")
+
     return base_image_url
 
 def send_to_buffer_graphql(post_text, image_url):
