@@ -5,15 +5,15 @@ import random
 import io
 import base64
 import feedparser
+from datetime import datetime
 from google import genai
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 BUFFER_ACCESS_TOKEN = os.getenv("BUFFER_ACCESS_TOKEN")
 
-# Headers to prevent Pexels / ImgBB request blocking in GitHub Runners
 HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 }
 
 def fetch_live_google_news(topic_query):
@@ -22,7 +22,8 @@ def fetch_live_google_news(topic_query):
     try:
         feed = feedparser.parse(rss_url)
         if feed.entries:
-            return random.choice(feed.entries[:5]).title
+            selected = random.choice(feed.entries[:5])
+            return selected.title
     except Exception as e:
         print(f"Google News RSS Error: {e}")
     return None
@@ -51,13 +52,12 @@ def generate_news_with_gemini():
         f"{prompt_content}\n\n"
         "STRICT RULES:\n"
         "1. Language: Professional Indian English.\n"
-        "2. Do NOT invent fake facts.\n"
-        "3. Structure:\n"
+        "2. Structure:\n"
         "   - Line 1: 🚨 [CAPS HOOK HEADLINE] with Emoji\n"
-        "   - Line 2-3: Factual news summary\n"
+        "   - Line 2-3: Core factual news summary\n"
         "   - Line 4: Short engagement question\n"
-        "   - Line 5: #WorldScopeX #NewsUpdate #Global #Tech\n"
-        "4. Total Length: 200 to 230 characters."
+        "   - Line 5: #WorldScopeX #NewsUpdate #Global\n"
+        "3. Total Length: Strictly between 170 and 200 characters."
     )
 
     client = genai.Client(api_key=GEMINI_API_KEY)
@@ -68,18 +68,44 @@ def generate_news_with_gemini():
                 contents=prompt,
             )
             text = response.text.strip()
+            
+            # Anti-Duplicate Guard: Unique timestamp tag to prevent identical posts
+            time_code = datetime.utcnow().strftime("%M%S")
+            unique_tag = f" #WSX_{time_code}"
+            
+            if len(text) + len(unique_tag) <= 240:
+                text += unique_tag
+            
             return text, image_keyword
         except Exception as e:
             print(f"Gemini API Attempt {attempt+1} Failed: {e}")
             time.sleep(2)
+            
     return None, "space"
 
+def create_solid_branded_canvas():
+    """Fallback Canvas with dynamic colorful themes"""
+    colors = [(15, 23, 42), (24, 24, 27), (15, 30, 45), (30, 20, 40)]
+    bg_color = random.choice(colors)
+    img = Image.new('RGB', (1080, 1080), color=bg_color)
+    draw = ImageDraw.Draw(img)
+    
+    draw.rectangle([30, 30, 1050, 1050], outline=(59, 130, 246), width=6)
+    draw.rectangle([50, 50, 1030, 1030], outline=(255, 215, 0), width=2)
+    
+    output = io.BytesIO()
+    img.save(output, format="JPEG", quality=95)
+    return output.getvalue()
+
 def apply_watermark_logo(bg_bytes):
-    """Guaranteed Watermark Layer - Merges logo or draws dynamic watermark text"""
     try:
         bg = Image.open(io.BytesIO(bg_bytes)).convert("RGBA")
-        
-        # Check if logo.png exists in local repo
+    except Exception as e:
+        print(f"Corrupted byte stream: {e}. Generating new canvas...")
+        bg = Image.open(io.BytesIO(create_solid_branded_canvas())).convert("RGBA")
+
+    try:
+        # Check Local logo.png in GitHub Repo
         if os.path.exists("logo.png"):
             logo = Image.open("logo.png").convert("RGBA")
             logo_w = 220
@@ -90,18 +116,25 @@ def apply_watermark_logo(bg_bytes):
             pos_x = bg.width - logo_w - 30
             pos_y = 30
             bg.paste(logo, (pos_x, pos_y), logo)
-            print("LOGO OVERLAY: logo.png applied successfully!")
+            print("LOGO EMBED SUCCESS: logo.png applied!")
         else:
-            print("LOGO WARNING: logo.png missing in repo root. Fallback text badge drawn!")
+            print("LOGO WARNING: logo.png not found. Drawing fallback badge...")
             draw = ImageDraw.Draw(bg)
-            draw.rectangle([bg.width - 250, 30, bg.width - 30, 80], fill=(10, 15, 30, 230), outline=(255, 215, 0, 255), width=2)
-            draw.text((bg.width - 230, 48), "WORLDSCOPEX", fill=(255, 255, 255, 255))
+            
+            badge_w, badge_h = 240, 55
+            x1 = bg.width - badge_w - 30
+            y1 = 30
+            x2 = bg.width - 30
+            y2 = 30 + badge_h
+            
+            draw.rectangle([x1, y1, x2, y2], fill=(15, 23, 42, 235), outline=(255, 215, 0, 255), width=2)
+            draw.text((x1 + 25, y1 + 18), "WORLDSCOPEX", fill=(255, 255, 255, 255))
 
         output = io.BytesIO()
         bg.convert("RGB").save(output, format="JPEG", quality=95)
         return output.getvalue()
     except Exception as e:
-        print(f"Watermark Failed: {e}")
+        print(f"Watermark error: {e}")
         return bg_bytes
 
 def upload_to_imgbb(image_bytes):
@@ -112,44 +145,44 @@ def upload_to_imgbb(image_bytes):
         res = requests.post('https://api.imgbb.com/1/upload', data=payload, timeout=25)
         data = res.json()
         if data.get('success'):
-            print(f"ImgBB Upload Success: {data['data']['url']}")
-            return data['data']['url']
+            url = data['data']['url']
+            print(f"ImgBB Upload Success: {url}")
+            return url
     except Exception as e:
         print(f"ImgBB Upload Error: {e}")
     return None
 
 def get_branded_image_url(keyword):
-    # Topic specific diverse images
-    images_map = {
-        "technology": "https://images.pexels.com/photos/8386440/pexels-photo-8386440.jpeg?auto=compress&cs=tinysrgb&w=1200",
-        "business": "https://images.pexels.com/photos/6801874/pexels-photo-6801874.jpeg?auto=compress&cs=tinysrgb&w=1200",
-        "politics": "https://images.pexels.com/photos/1550337/pexels-photo-1550337.jpeg?auto=compress&cs=tinysrgb&w=1200",
-        "space": "https://images.pexels.com/photos/2156/sky-space-shuttle-start.jpg?auto=compress&cs=tinysrgb&w=1200",
-        "infrastructure": "https://images.pexels.com/photos/169647/pexels-photo-169647.jpeg?auto=compress&cs=tinysrgb&w=1200"
-    }
+    # Diverse Stock Images to prevent dynamic repetition
+    images_pool = [
+        "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1080&q=80",
+        "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=1080&q=80",
+        "https://images.unsplash.com/photo-1541872703-74c5e44368f9?w=1080&q=80",
+        "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1080&q=80",
+        "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=1080&q=80"
+    ]
     
-    selected_img_url = images_map.get(keyword, "https://images.pexels.com/photos/2156/sky-space-shuttle-start.jpg?auto=compress&cs=tinysrgb&w=1200")
+    selected_url = random.choice(images_pool)
     
     try:
-        print(f"Fetching base stock image for '{keyword}'...")
-        res = requests.get(selected_img_url, headers=HEADERS, timeout=15)
-        if res.status_code == 200:
+        print(f"Fetching stock image for '{keyword}'...")
+        res = requests.get(selected_url, headers=HEADERS, timeout=15)
+        if res.status_code == 200 and len(res.content) > 5000:
             watermarked_bytes = apply_watermark_logo(res.content)
             hosted_url = upload_to_imgbb(watermarked_bytes)
             if hosted_url:
                 return hosted_url
     except Exception as e:
-        print(f"Base image fetch error: {e}")
+        print(f"Stock image fetch failed: {e}")
 
-    # FORCE WATERMARK EVEN ON FALLBACK IMAGE
-    print("Executing watermark logic on fallback image...")
-    fallback_res = requests.get("https://images.pexels.com/photos/2156/sky-space-shuttle-start.jpg?auto=compress&cs=tinysrgb&w=1200", headers=HEADERS, timeout=15)
-    watermarked_fallback = apply_watermark_logo(fallback_res.content)
-    return upload_to_imgbb(watermarked_fallback)
+    # Fallback Canvas with Logo
+    print("Generating dynamic branded canvas fallback...")
+    fallback_bytes = apply_watermark_logo(create_solid_branded_canvas())
+    return upload_to_imgbb(fallback_bytes)
 
 def send_to_buffer_graphql(post_text, image_url):
-    if not BUFFER_ACCESS_TOKEN:
-        print("Error: BUFFER_ACCESS_TOKEN Missing!")
+    if not BUFFER_ACCESS_TOKEN or not image_url:
+        print("Error: BUFFER_ACCESS_TOKEN or Image URL Missing!")
         return
 
     url = "https://api.buffer.com/graphql"
@@ -202,5 +235,6 @@ if __name__ == "__main__":
     text, image_keyword = generate_news_with_gemini()
     if text:
         image_url = get_branded_image_url(image_keyword)
-        print(f"Sending Post to Buffer (Instagram & X)...\nText:\n{text}\nImage: {image_url}")
+        print(f"Final Image URL: {image_url}")
+        print(f"Post Text:\n{text}")
         send_to_buffer_graphql(text, image_url)
