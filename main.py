@@ -6,10 +6,13 @@ import io
 import base64
 import feedparser
 from google import genai
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 BUFFER_ACCESS_TOKEN = os.getenv("BUFFER_ACCESS_TOKEN")
+
+# Aapke GitHub repository ka direct logo URL
+GITHUB_LOGO_URL = "https://raw.githubusercontent.com/shuklayes44/News-boat/main/logo.png"
 
 def fetch_live_google_news(topic_query):
     formatted_query = topic_query.replace(' ', '+')
@@ -18,7 +21,7 @@ def fetch_live_google_news(topic_query):
     try:
         feed = feedparser.parse(rss_url)
         if feed.entries:
-            top_entries = feed.entries[:3]
+            top_entries = feed.entries[:5]
             selected_entry = random.choice(top_entries)
             return selected_entry.title
     except Exception as e:
@@ -28,17 +31,17 @@ def fetch_live_google_news(topic_query):
 def generate_news_with_gemini():
     if not GEMINI_API_KEY:
         print("Error: GEMINI_API_KEY Missing!")
-        return None
+        return None, "news"
 
     topics = [
-        "technology artificial intelligence hardware",
-        "stock market finance global business",
-        "geopolitics international relations diplomacy",
-        "space exploration defense technology science",
-        "India infrastructure highways mega projects"
+        ("technology artificial intelligence hardware", "artificial intelligence"),
+        ("stock market finance global business", "stock market"),
+        ("geopolitics international relations diplomacy", "world politics"),
+        ("space exploration defense technology science", "space rocket"),
+        ("India infrastructure highways mega projects", "modern city")
     ]
     
-    selected_query = random.choice(topics)
+    selected_query, image_keyword = random.choice(topics)
     print(f"Fetching Live Google News for query: '{selected_query}'...")
     
     live_headline = fetch_live_google_news(selected_query)
@@ -74,45 +77,42 @@ def generate_news_with_gemini():
             text = response.text.strip()
             if len(text) > 240:
                 text = text[:237] + "..."
-            return text
+            return text, image_keyword
         except Exception as e:
             print(f"Attempt {attempt+1} failed: {e}")
             time.sleep(3)
 
-    return None
+    return None, "news"
 
-def add_logo_watermark(image_bytes):
+def add_github_logo_watermark(bg_bytes):
+    """GitHub repo wale logo.png ko image ke TOP-RIGHT corner me merge karta hai"""
     try:
-        img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
-        width, height = img.size
+        bg = Image.open(io.BytesIO(bg_bytes)).convert("RGBA")
         
-        # Overlay canvas for semi-transparent logo background
-        overlay = Image.new('RGBA', img.size, (255, 255, 255, 0))
-        draw = ImageDraw.Draw(overlay)
-        
-        # Bottom-right branded logo badge box
-        box_w, box_h = int(width * 0.35), int(height * 0.12)
-        margin = int(width * 0.03)
-        x2 = width - margin
-        y2 = height - margin
-        x1 = x2 - box_w
-        y1 = y2 - box_h
-        
-        draw.rectangle([x1, y1, x2, y2], fill=(0, 0, 0, 180))
-        
-        # Load default font and add text logo
-        font = ImageFont.load_default()
-        draw.text((x1 + 15, y1 + 10), "WORLDSCOPEX", fill=(255, 255, 255, 255), font=font)
-        draw.text((x1 + 15, y1 + 25), "• LIVE NEWS •", fill=(255, 215, 0, 255), font=font)
-        
-        watermarked = Image.alpha_composite(img, overlay).convert("RGB")
-        
-        output_buffer = io.BytesIO()
-        watermarked.save(output_buffer, format="JPEG", quality=90)
-        return output_buffer.getvalue()
+        res = requests.get(GITHUB_LOGO_URL, timeout=10)
+        if res.status_code == 200:
+            logo = Image.open(io.BytesIO(res.content)).convert("RGBA")
+            
+            # Resize Logo (Width = 200px)
+            logo_w = 200
+            w_percent = logo_w / float(logo.size[0])
+            logo_h = int(float(logo.size[1]) * float(w_percent))
+            logo = logo.resize((logo_w, logo_h), Image.Resampling.LANCZOS)
+            
+            # Top-Right Placement
+            pos_x = bg.width - logo_w - 30
+            pos_y = 30
+            
+            bg.paste(logo, (pos_x, pos_y), logo)
+            print("Logo Watermark Merged Successfully!")
+            
+            output = io.BytesIO()
+            bg.convert("RGB").save(output, format="JPEG", quality=95)
+            return output.getvalue()
     except Exception as e:
-        print(f"Logo Overlay Warning: {e}")
-        return image_bytes
+        print(f"Logo Watermark Error: {e}")
+    
+    return bg_bytes
 
 def upload_to_imgbb(image_bytes):
     api_key = "3b0ad8ee6d8606aa1dce444bf19b45bb" 
@@ -130,31 +130,31 @@ def upload_to_imgbb(image_bytes):
         print(f"ImgBB upload error: {e}")
     return None
 
-def get_guaranteed_public_image_url():
-    stock_urls = [
-        "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1200",
-        "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1200",
-        "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1200",
-        "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=1200"
-    ]
-    selected_url = random.choice(stock_urls)
+def get_unique_branded_image_url(keyword):
+    # Dynamic Topic Specific Stock Images
+    category_images = {
+        "artificial intelligence": "https://images.pexels.com/photos/8386440/pexels-photo-8386440.jpeg?auto=compress&cs=tinysrgb&w=1200",
+        "stock market": "https://images.pexels.com/photos/6801874/pexels-photo-6801874.jpeg?auto=compress&cs=tinysrgb&w=1200",
+        "world politics": "https://images.pexels.com/photos/1550337/pexels-photo-1550337.jpeg?auto=compress&cs=tinysrgb&w=1200",
+        "space rocket": "https://images.pexels.com/photos/2156/sky-space-shuttle-start.jpg?auto=compress&cs=tinysrgb&w=1200",
+        "modern city": "https://images.pexels.com/photos/169647/pexels-photo-169647.jpeg?auto=compress&cs=tinysrgb&w=1200"
+    }
+    
+    selected_img_url = category_images.get(keyword, "https://images.pexels.com/photos/518543/pexels-photo-518543.jpeg?auto=compress&cs=tinysrgb&w=1200")
     
     try:
-        print("Fetching background image stream...")
-        res = requests.get(selected_url, timeout=15)
+        print(f"Fetching unique image for keyword '{keyword}'...")
+        res = requests.get(selected_img_url, timeout=15)
         if res.status_code == 200:
-            print("Adding WorldScopeX Logo Badge Overlay...")
-            processed_image = add_logo_watermark(res.content)
-            
-            print("Uploading image to ImgBB for permanent public URL...")
-            hosted_url = upload_to_imgbb(processed_image)
+            watermarked = add_github_logo_watermark(res.content)
+            hosted_url = upload_to_imgbb(watermarked)
             if hosted_url:
-                print(f"Public Hosted Image URL: {hosted_url}")
+                print(f"Final Branded Image URL: {hosted_url}")
                 return hosted_url
     except Exception as e:
-        print(f"Image download/upload error: {e}")
+        print(f"Image fetch/upload error: {e}")
 
-    return "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1200"
+    return "https://images.pexels.com/photos/518543/pexels-photo-518543.jpeg?auto=compress&cs=tinysrgb&w=1200"
 
 def send_to_buffer_graphql(post_text, image_url):
     if not BUFFER_ACCESS_TOKEN:
@@ -209,8 +209,8 @@ def send_to_buffer_graphql(post_text, image_url):
         print(f"Result for {service} ({ch_id}):", post_res.text)
 
 if __name__ == "__main__":
-    text = generate_news_with_gemini()
+    text, image_keyword = generate_news_with_gemini()
     if text:
-        image_url = get_guaranteed_public_image_url()
+        image_url = get_unique_branded_image_url(image_keyword)
         print(f"Generated News Text for WorldScopeX:\n{text}\n\nSending to Buffer...")
         send_to_buffer_graphql(text, image_url)
