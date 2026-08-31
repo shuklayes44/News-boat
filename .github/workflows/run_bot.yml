@@ -2,9 +2,8 @@ name: Run News Bot
 
 on:
   schedule:
-    # Har 4 ghante me ek baar run hoga (IST: 1:30 AM, 5:30 AM, 9:30 AM, 1:30 PM, 5:30 PM, 9:30 PM)
-    - cron: '0 0,4,8,12,16,20 * * *'
-  workflow_dispatch: # Manual test button
+    - cron: '0 0,4,8,12,16,20 * * *'  # Exact original timing (IST: 5:30 AM, 9:30 AM, 1:30 PM, 5:30 PM, 9:30 PM, 1:30 AM)
+  workflow_dispatch:
 
 jobs:
   run-python-bot:
@@ -20,10 +19,12 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          pip install requests google-genai
+          python -m pip install --upgrade pip
+          pip install Pillow requests google-genai feedparser
 
       - name: Run Main Script
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           BUFFER_ACCESS_TOKEN: ${{ secrets.BUFFER_ACCESS_TOKEN }}
-        run: python main.py
+        run: |
+          python main.py
