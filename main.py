@@ -6,19 +6,16 @@ import io
 import base64
 import feedparser
 from google import genai
-
-try:
-    from PIL import Image
-    HAS_PIL = True
-except ImportError:
-    HAS_PIL = False
-    print("Warning: Pillow missing in environment.")
+from PIL import Image
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 BUFFER_ACCESS_TOKEN = os.getenv("BUFFER_ACCESS_TOKEN")
 
+# Raw GitHub Public URL for your uploaded logo.png
+GITHUB_LOGO_URL = "https://raw.githubusercontent.com/shuklayes44/News-boat/main/logo.png"
+
 def fetch_live_google_news(topic_query):
-    """Google News RSS Feed se exact live trending news fetch karta hai"""
+    """Google News RSS Feed se exact live trending headline fetch karta hai"""
     formatted_query = topic_query.replace(' ', '+')
     rss_url = f"https://news.google.com/rss/search?q={formatted_query}&hl=en-IN&gl=IN&ceid=IN:en"
     
@@ -91,6 +88,7 @@ def generate_news_with_gemini():
     return None, "news"
 
 def upload_to_imgbb(image_bytes):
+    """ImgBB API se Image ko permanent public URL me convert karta hai (Buffer/Instagram Fix)"""
     api_key = "3b0ad8ee6d8606aa1dce444bf19b45bb" 
     encoded_string = base64.b64encode(image_bytes).decode('utf-8')
     payload = {
@@ -103,7 +101,7 @@ def upload_to_imgbb(image_bytes):
         if data.get('success'):
             return data['data']['url']
     except Exception as e:
-        print(f"Imgbb upload error: {e}")
+        print(f"ImgBB upload error: {e}")
     return None
 
 def get_topic_matched_image_url(image_keywords):
@@ -111,43 +109,47 @@ def get_topic_matched_image_url(image_keywords):
     unique_seed = f"{keyword}_{int(time.time())}_{random.randint(100, 999)}"
     base_image_url = f"https://picsum.photos/seed/{unique_seed}/1200/675.jpg"
     
-    logo_path = "logo.png"
-    if HAS_PIL and os.path.exists(logo_path):
-        try:
-            print("Logo found! Merging WorldScopeX Watermark...")
-            res = requests.get(base_image_url, timeout=15)
-            if res.status_code == 200:
-                bg = Image.open(io.BytesIO(res.content)).convert("RGBA")
-                logo = Image.open(logo_path).convert("RGBA")
+    try:
+        print("Downloading background image...")
+        bg_res = requests.get(base_image_url, timeout=15)
+        bg = Image.open(io.BytesIO(bg_res.content)).convert("RGBA")
+        
+        print(f"Fetching Logo from GitHub Raw URL: {GITHUB_LOGO_URL} ...")
+        logo_res = requests.get(GITHUB_LOGO_URL, timeout=15)
+        
+        if logo_res.status_code == 200:
+            logo = Image.open(io.BytesIO(logo_res.content)).convert("RGBA")
 
-                logo_w = 200
-                w_percent = logo_w / float(logo.size[0])
-                logo_h = int(float(logo.size[1]) * float(w_percent))
-                logo = logo.resize((logo_w, logo_h), Image.Resampling.LANCZOS)
+            logo_w = 200
+            w_percent = logo_w / float(logo.size[0])
+            logo_h = int(float(logo.size[1]) * float(w_percent))
+            logo = logo.resize((logo_w, logo_h), Image.Resampling.LANCZOS)
 
-                pos_x = bg.width - logo_w - 30
-                pos_y = 30
-                bg.paste(logo, (pos_x, pos_y), logo)
+            pos_x = bg.width - logo_w - 30
+            pos_y = 30
+            bg.paste(logo, (pos_x, pos_y), logo)
+            print("Watermark merged successfully!")
+        else:
+            print("Logo fetch failed from GitHub, continuing without logo overlay.")
 
-                final_img = bg.convert("RGB")
-                img_byte_arr = io.BytesIO()
-                final_img.save(img_byte_arr, format='JPEG', quality=95)
-                
-                print("Uploading branded image to ImgBB for public URL...")
-                hosted_url = upload_to_imgbb(img_byte_arr.getvalue())
-                if hosted_url:
-                    print(f"Public Branded Image URL: {hosted_url}")
-                    return hosted_url
-        except Exception as e:
-            print(f"Watermark overlay error: {e}")
+        final_img = bg.convert("RGB")
+        img_byte_arr = io.BytesIO()
+        final_img.save(img_byte_arr, format='JPEG', quality=95)
+        
+        print("Uploading branded image to ImgBB for permanent public URL...")
+        hosted_url = upload_to_imgbb(img_byte_arr.getvalue())
+        if hosted_url:
+            print(f"Public Branded Image URL: {hosted_url}")
+            return hosted_url
+
+    except Exception as e:
+        print(f"Watermark or Image Processing Error: {e}")
             
     print("Fallback: Uploading base image to ImgBB...")
     try:
         res = requests.get(base_image_url, timeout=15)
         if res.status_code == 200:
-            hosted_url = upload_to_imgbb(res.content)
-            if hosted_url:
-                return hosted_url
+            return upload_to_imgbb(res.content)
     except Exception as e:
         print(f"Direct base image upload error: {e}")
 
