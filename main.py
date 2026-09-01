@@ -13,13 +13,13 @@ HEADERS = {
 }
 
 def fetch_live_google_news(topic_query):
-    """Fetches ONLY 100% Real Live Breaking News Headlines from Google RSS"""
+    """Fetches STRICT 24-Hour Breaking News Headlines from Google RSS"""
     formatted_query = topic_query.replace(' ', '+')
     rss_url = f"https://news.google.com/rss/search?q={formatted_query}&hl=en-IN&gl=IN&ceid=IN:en"
     try:
         feed = feedparser.parse(rss_url)
         if feed.entries and len(feed.entries) > 0:
-            selected = random.choice(feed.entries[:8])
+            selected = random.choice(feed.entries[:5])
             return selected.title
     except Exception as e:
         print(f"Google News RSS Error: {e}")
@@ -30,22 +30,22 @@ def generate_news_with_gemini():
         print("Error: GEMINI_API_KEY Missing!")
         return None, "breaking news"
 
+    # Strict breaking news search parameters with time filter (when:1d)
     topics = [
-        ("India breaking news today", "india"),
-        ("world news breaking geopolitics", "geopolitics"),
-        ("technology artificial intelligence news today", "technology"),
-        ("space exploration science news ISRO NASA", "space"),
-        ("business finance economy market news", "finance")
+        ("India breaking news live when:1d", "india"),
+        ("world geopolitics breaking news when:1d", "geopolitics"),
+        ("technology AI launch breaking news when:1d", "technology"),
+        ("ISRO NASA space breaking news when:1d", "space"),
+        ("stock market economy breaking news India when:1d", "finance")
     ]
     
     selected_query, image_tag = random.choice(topics)
-    print(f"Fetching Live Google News for query: '{selected_query}'...")
+    print(f"Fetching Urgent 24h Breaking News for query: '{selected_query}'...")
     
     live_headline = fetch_live_google_news(selected_query)
     
-    # Retry logic to ensure ONLY 100% real news is fetched
     if not live_headline:
-        print("No live RSS headline found, retrying backup topic...")
+        print("No urgent RSS headline found, retrying alternative breaking topic...")
         for query, tag in topics:
             live_headline = fetch_live_google_news(query)
             if live_headline:
@@ -53,23 +53,23 @@ def generate_news_with_gemini():
                 break
 
     if not live_headline:
-        print("Error: Could not fetch real live news RSS feed. Aborting to prevent fake news.")
+        print("Error: Could not fetch real live news RSS feed. Aborting execution.")
         return None, image_tag
 
-    print(f"SUCCESS: Real Live Headline Fetched -> {live_headline}")
+    print(f"SUCCESS: Urgent Breaking Headline Fetched -> {live_headline}")
 
     prompt = (
-        f"STRICT INSTRUCTION: Write a factual, real news post based ONLY on this exact real-world headline:\n"
+        f"STRICT INSTRUCTION: Write a factual breaking news post based ONLY on this real-world headline:\n"
         f"HEADLINE: '{live_headline}'\n\n"
         "STRICT FORMATTING RULES:\n"
         "1. Language: Professional Indian English.\n"
-        "2. Do NOT exaggerate or invent fake data/figures. Stick strictly to the real event.\n"
+        "2. Keep it punchy, factual, and strictly relevant to this breaking event.\n"
         "3. Structure:\n"
         "   - Line 1: 🚨 [CAPS HOOK HEADLINE] with relevant Emoji\n"
-        "   - Line 2-3: Core factual news summary\n"
+        "   - Line 2-3: Core factual breaking news summary\n"
         "   - Line 4: Engagement question for audience\n"
-        "   - Line 5: 4-5 dynamic trending hashtags matching THIS exact news (e.g. #BreakingNews #WorldScopeX #IndiaNews)\n"
-        "4. ABSOLUTELY DO NOT ADD ANY CODE TAGS LIKE #WSX_1234 OR SYSTEM CODES AT THE END.\n"
+        "   - Line 5: 4-5 dynamic trending hashtags matching THIS exact news\n"
+        "4. ABSOLUTELY DO NOT ADD ANY SYSTEM CODE TAGS LIKE #WSX_1234 AT THE END.\n"
         "5. Total Length: Under 230 characters."
     )
 
@@ -89,7 +89,7 @@ def generate_news_with_gemini():
     return None, image_tag
 
 def get_dynamic_unique_image_url(image_tag):
-    """Generates dynamic unique HD photo URL matching news topic (prevents repeat images)"""
+    """Generates dynamic unique HD photo URL matching news topic"""
     category_photos = {
         "india": ["photo-1532375810709-75b1da00537c", "photo-1524492412937-b28074a5d7da"],
         "geopolitics": ["photo-1541872703-74c5e44368f9", "photo-1486406146926-c627a92ad1ab"],
@@ -103,7 +103,7 @@ def get_dynamic_unique_image_url(image_tag):
     return f"https://images.unsplash.com/{selected_photo}?w=1080&q=80&sig={random_sig}"
 
 def send_direct_to_buffer(post_text, image_url):
-    """Posts INSTANTLY to live social media channels using Buffer Direct Publish GraphQL Engine"""
+    """Posts INSTANTLY to live social media channels via Buffer Direct Publish Engine"""
     if not BUFFER_ACCESS_TOKEN or not image_url:
         print("Error: BUFFER_ACCESS_TOKEN or Image URL Missing!")
         return
@@ -131,11 +131,9 @@ def send_direct_to_buffer(post_text, image_url):
         ch_id = ch.get("id")
         service = ch.get("service")
         
-        # Mandatory parameters for Direct Live Feed Publishing
         extra_metadata = ', metadata: { instagram: { type: post, shouldShareToFeed: true } }' if service.lower() == 'instagram' else ''
         media_asset = f', assets: [{{ image: {{ url: "{image_url}" }} }}]'
 
-        # Force Instant Direct Publishing via mode: shareNow
         mutation = f"""
         mutation {{
             createPost(input: {{
