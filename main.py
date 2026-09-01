@@ -13,14 +13,13 @@ HEADERS = {
 }
 
 def fetch_live_google_news(topic_query):
-    """Fetches real-time live headlines from Google News RSS feed"""
+    """Fetches ONLY 100% Real Live Breaking News Headlines from Google RSS"""
     formatted_query = topic_query.replace(' ', '+')
     rss_url = f"https://news.google.com/rss/search?q={formatted_query}&hl=en-IN&gl=IN&ceid=IN:en"
     try:
         feed = feedparser.parse(rss_url)
-        if feed.entries:
-            # Pick a random fresh entry from top 10 live news items to avoid repetitive posts
-            selected = random.choice(feed.entries[:10])
+        if feed.entries and len(feed.entries) > 0:
+            selected = random.choice(feed.entries[:8])
             return selected.title
     except Exception as e:
         print(f"Google News RSS Error: {e}")
@@ -29,37 +28,49 @@ def fetch_live_google_news(topic_query):
 def generate_news_with_gemini():
     if not GEMINI_API_KEY:
         print("Error: GEMINI_API_KEY Missing!")
-        return None, "space"
+        return None, "breaking news"
 
-    # Diverse search topics for fresh news every run
     topics = [
-        ("technology artificial intelligence breakthroughs", "technology"),
-        ("stock market finance global economic trends", "finance"),
-        ("geopolitics international news diplomacy world", "geopolitics"),
-        ("space exploration NASA ISRO defense science", "space"),
-        ("India infrastructure highways mega development", "infrastructure"),
-        ("electric vehicles renewable energy future tech", "energy"),
-        ("cybersecurity cloud computing digital innovation", "cybersecurity")
+        ("India breaking news today", "india"),
+        ("world news breaking geopolitics", "geopolitics"),
+        ("technology artificial intelligence news today", "technology"),
+        ("space exploration science news ISRO NASA", "space"),
+        ("business finance economy market news", "finance")
     ]
     
-    selected_query, image_keyword = random.choice(topics)
+    selected_query, image_tag = random.choice(topics)
     print(f"Fetching Live Google News for query: '{selected_query}'...")
     
     live_headline = fetch_live_google_news(selected_query)
-    prompt_content = f"REALTIME LIVE HEADLINE: '{live_headline}'" if live_headline else f"TOPIC AREA: '{selected_query}'"
+    
+    # Retry logic to ensure ONLY 100% real news is fetched
+    if not live_headline:
+        print("No live RSS headline found, retrying backup topic...")
+        for query, tag in topics:
+            live_headline = fetch_live_google_news(query)
+            if live_headline:
+                image_tag = tag
+                break
+
+    if not live_headline:
+        print("Error: Could not fetch real live news RSS feed. Aborting to prevent fake news.")
+        return None, image_tag
+
+    print(f"SUCCESS: Real Live Headline Fetched -> {live_headline}")
 
     prompt = (
-        f"You are the senior news editor for 'WorldScopeX'. Write a unique, engaging viral social media post based on this real news:\n"
-        f"{prompt_content}\n\n"
+        f"STRICT INSTRUCTION: Write a factual, real news post based ONLY on this exact real-world headline:\n"
+        f"HEADLINE: '{live_headline}'\n\n"
         "STRICT FORMATTING RULES:\n"
-        "1. Language: Professional, concise Indian English.\n"
-        "2. Structure:\n"
-        "   - Line 1: 🚨 [CAPS HOOK HEADLINE] with relevant emoji\n"
-        "   - Line 2-3: Core factual news breakdown\n"
-        "   - Line 4: Short engagement question for readers\n"
-        "   - Line 5: 4-5 dynamic trending hashtags matching THIS exact news (e.g. #BreakingNews #TechUpdate #WorldScopeX)\n"
-        "3. CRITICAL: DO NOT add any system codes, random numbers, or #WSX_1234 tags.\n"
-        "4. Keep the text under 240 characters total."
+        "1. Language: Professional Indian English.\n"
+        "2. Do NOT exaggerate or invent fake data/figures. Stick strictly to the real event.\n"
+        "3. Structure:\n"
+        "   - Line 1: 🚨 [CAPS HOOK HEADLINE] with relevant Emoji\n"
+        "   - Line 2-3: Core factual news summary\n"
+        "   - Line 4: Engagement question for audience\n"
+        "   - Line 5: 4-5 dynamic trending hashtags matching THIS exact news (e.g. #BreakingNews #WorldScopeX #IndiaNews)\n"
+        "4. ABSOLUTELY DO NOT ADD ANY CODE TAGS LIKE #WSX_1234 OR SYSTEM CODES AT THE END.\n"
+        "5. Total Length: Under 230 characters."
     )
 
     client = genai.Client(api_key=GEMINI_API_KEY)
@@ -70,42 +81,29 @@ def generate_news_with_gemini():
                 contents=prompt,
             )
             text = response.text.strip()
-            return text, image_keyword
+            return text, image_tag
         except Exception as e:
             print(f"Gemini API Attempt {attempt+1} Failed: {e}")
             time.sleep(2)
             
-    return None, "space"
+    return None, image_tag
 
-def get_topic_stock_image_url(keyword):
-    """Fetches high quality stock image mapped to news category"""
-    category_images = {
-        "technology": [
-            "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1080&q=80",
-            "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=1080&q=80"
-        ],
-        "finance": [
-            "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=1080&q=80",
-            "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=1080&q=80"
-        ],
-        "space": [
-            "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1080&q=80",
-            "https://images.unsplash.com/photo-1517976487492-5750f3195933?w=1080&q=80"
-        ],
-        "geopolitics": [
-            "https://images.unsplash.com/photo-1541872703-74c5e44368f9?w=1080&q=80",
-            "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=1080&q=80"
-        ],
-        "infrastructure": [
-            "https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=1080&q=80",
-            "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=1080&q=80"
-        ]
+def get_dynamic_unique_image_url(image_tag):
+    """Generates dynamic unique HD photo URL matching news topic (prevents repeat images)"""
+    category_photos = {
+        "india": ["photo-1532375810709-75b1da00537c", "photo-1524492412937-b28074a5d7da"],
+        "geopolitics": ["photo-1541872703-74c5e44368f9", "photo-1486406146926-c627a92ad1ab"],
+        "technology": ["photo-1518770660439-4636190af475", "photo-1526374965328-7f61d4dc18c5"],
+        "space": ["photo-1451187580459-43490279c0fa", "photo-1517976487492-5750f3195933"],
+        "finance": ["photo-1611974789855-9c2a0a7236a3", "photo-1590283603385-17ffb3a7f29f"]
     }
-    
-    pool = category_images.get(keyword, category_images["technology"])
-    return random.choice(pool)
+    photo_list = category_photos.get(image_tag, category_photos["india"])
+    selected_photo = random.choice(photo_list)
+    random_sig = random.randint(100, 9999)
+    return f"https://images.unsplash.com/{selected_photo}?w=1080&q=80&sig={random_sig}"
 
-def send_to_buffer_graphql(post_text, image_url):
+def send_direct_to_buffer(post_text, image_url):
+    """Posts INSTANTLY to live social media channels using Buffer Direct Publish GraphQL Engine"""
     if not BUFFER_ACCESS_TOKEN or not image_url:
         print("Error: BUFFER_ACCESS_TOKEN or Image URL Missing!")
         return
@@ -133,16 +131,18 @@ def send_to_buffer_graphql(post_text, image_url):
         ch_id = ch.get("id")
         service = ch.get("service")
         
-        metadata_param = ', metadata: { instagram: { type: post, shouldShareToFeed: true } }' if service.lower() == 'instagram' else ''
-        media_input = f', assets: [{{ image: {{ url: "{image_url}" }} }}]'
+        # Mandatory parameters for Direct Live Feed Publishing
+        extra_metadata = ', metadata: { instagram: { type: post, shouldShareToFeed: true } }' if service.lower() == 'instagram' else ''
+        media_asset = f', assets: [{{ image: {{ url: "{image_url}" }} }}]'
 
+        # Force Instant Direct Publishing via mode: shareNow
         mutation = f"""
         mutation {{
             createPost(input: {{
                 channelId: "{ch_id}",
                 text: {requests.compat.json.dumps(post_text)},
                 schedulingType: automatic,
-                mode: shareNow{metadata_param}{media_input}
+                mode: shareNow{extra_metadata}{media_asset}
             }}) {{
                 ... on PostActionSuccess {{
                     post {{ id status }}
@@ -154,12 +154,14 @@ def send_to_buffer_graphql(post_text, image_url):
         }}
         """
         post_res = requests.post(url, json={"query": mutation}, headers=headers)
-        print(f"Result for {service} ({ch_id}): {post_res.text}")
+        print(f"Direct Post Result for {service} ({ch_id}): {post_res.text}")
 
 if __name__ == "__main__":
-    text, image_keyword = generate_news_with_gemini()
+    text, image_tag = generate_news_with_gemini()
     if text:
-        image_url = get_topic_stock_image_url(image_keyword)
+        image_url = get_dynamic_unique_image_url(image_tag)
         print(f"Final Image URL: {image_url}")
         print(f"Post Text:\n{text}")
-        send_to_buffer_graphql(text, image_url)
+        send_direct_to_buffer(text, image_url)
+    else:
+        print("Skipping execution: Live RSS news fetch failed.")
