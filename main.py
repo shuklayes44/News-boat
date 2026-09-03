@@ -14,13 +14,13 @@ HEADERS = {
 }
 
 def fetch_live_google_news(topic_query):
-    """Fetches Live Breaking News Headlines from Google News RSS"""
+    """Fetches STRICT 24-Hour Trending Breaking News Headlines from Google RSS"""
     formatted_query = topic_query.replace(' ', '+')
     rss_url = f"https://news.google.com/rss/search?q={formatted_query}&hl=en-IN&gl=IN&ceid=IN:en"
     try:
         feed = feedparser.parse(rss_url)
         if feed.entries and len(feed.entries) > 0:
-            selected = random.choice(feed.entries[:8])
+            selected = random.choice(feed.entries[:5])
             return selected.title
     except Exception as e:
         print(f"Google News RSS Error: {e}")
@@ -31,23 +31,23 @@ def generate_news_with_gemini():
         print("Error: GEMINI_API_KEY Missing!")
         return None, "breaking news"
 
-    # Dynamic RSS Topics
+    # Strict 24h Trending Queries + Category Image Keywords
     topics = [
-        ("India breaking news live development", "India infrastructure development"),
-        ("world geopolitics news diplomacy", "global geopolitics diplomacy"),
-        ("technology AI launch artificial intelligence", "technology artificial intelligence"),
-        ("ISRO NASA space exploration news", "space rocket ISRO"),
-        ("stock market economy India business", "stock market economy finance")
+        ("India breaking news live updates when:1d", "india cityscape infrastructure"),
+        ("world geopolitics breaking news live when:1d", "world map geopolitics diplomacy"),
+        ("technology AI news breaking launch when:1d", "artificial intelligence technology future"),
+        ("ISRO NASA space launch breaking news when:1d", "rocket launch space galaxy"),
+        ("stock market Nifty Sensex breaking news when:1d", "stock exchange trading charts")
     ]
     
     selected_query, image_search_keyword = random.choice(topics)
-    print(f"Fetching Live News for query: '{selected_query}'...")
+    print(f"Fetching 24h Trending News for query: '{selected_query}'...")
     
     live_headline = fetch_live_google_news(selected_query)
     
-    # Backup Loop if first query fails
+    # Fallback Loop
     if not live_headline:
-        print("No live RSS headline found, trying fallback topic...")
+        print("No headline found for primary topic, checking fallback trending topics...")
         for query, keyword in topics:
             live_headline = fetch_live_google_news(query)
             if live_headline:
@@ -58,21 +58,20 @@ def generate_news_with_gemini():
         print("Error: Could not fetch real live news RSS feed. Aborting execution.")
         return None, image_search_keyword
 
-    print(f"SUCCESS: Real Headline Fetched -> {live_headline}")
+    print(f"SUCCESS: Fresh Trending Headline Fetched -> {live_headline}")
 
     prompt = (
-        f"STRICT INSTRUCTION: Write a factual breaking news post based ONLY on this real-world headline:\n"
+        f"STRICT INSTRUCTION: Write a high-impact, factual breaking news post based ONLY on this headline:\n"
         f"HEADLINE: '{live_headline}'\n\n"
         "STRICT FORMATTING RULES:\n"
         "1. Language: Professional Indian English.\n"
-        "2. Keep it punchy, factual, and strictly relevant to this breaking event.\n"
-        "3. Structure:\n"
+        "2. Structure:\n"
         "   - Line 1: 🚨 [CAPS HOOK HEADLINE] with relevant Emoji\n"
         "   - Line 2-3: Core factual news summary\n"
-        "   - Line 4: Engagement question for audience\n"
+        "   - Line 4: Short engagement question for audience\n"
         "   - Line 5: 4-5 dynamic trending hashtags matching THIS exact news\n"
-        "4. ABSOLUTELY DO NOT ADD ANY SYSTEM CODE TAGS LIKE #WSX_1234 AT THE END.\n"
-        "5. Total Length: Under 230 characters."
+        "3. ABSOLUTELY DO NOT ADD ANY SYSTEM CODE TAGS LIKE #WSX_1234 AT THE END.\n"
+        "4. Total Length: Under 230 characters."
     )
 
     client = genai.Client(api_key=GEMINI_API_KEY)
@@ -91,11 +90,11 @@ def generate_news_with_gemini():
     return None, image_search_keyword
 
 def get_dynamic_unique_image_url(keyword):
-    """Generates 100% UNIQUE HD photo URL matching news topic (no fixed image pool)"""
+    """Generates 100% Dynamic & Unique HD Image matching exact news category"""
     encoded_keyword = urllib.parse.quote(keyword)
-    random_sig = random.randint(10000, 999999)
-    # Direct Unsplash Keyword Engine with random signature
-    return f"https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=1080&q=80&sig={random_sig}"
+    random_sig = random.randint(100000, 999999)
+    # Dynamic Unsplash Engine based on topic keywords + random signature
+    return f"https://source.unsplash.com/1080x1080/?{encoded_keyword}&sig={random_sig}"
 
 def send_direct_to_buffer(post_text, image_url):
     """Posts INSTANTLY to live social media channels via Buffer Direct Publish Engine"""
