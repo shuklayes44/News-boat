@@ -2,6 +2,7 @@ import os
 import time
 import requests
 import random
+import urllib.parse
 import feedparser
 from google import genai
 
@@ -30,31 +31,30 @@ def generate_news_with_gemini():
         print("Error: GEMINI_API_KEY Missing!")
         return None, "breaking news"
 
-    # Strict breaking news search parameters with time filter (when:1d)
     topics = [
-        ("India breaking news live when:1d", "india"),
-        ("world geopolitics breaking news when:1d", "geopolitics"),
-        ("technology AI launch breaking news when:1d", "technology"),
-        ("ISRO NASA space breaking news when:1d", "space"),
-        ("stock market economy breaking news India when:1d", "finance")
+        ("India breaking news live when:1d", "India news infrastructure"),
+        ("world geopolitics breaking news when:1d", "global geopolitics news"),
+        ("technology AI launch breaking news when:1d", "technology artificial intelligence"),
+        ("ISRO NASA space breaking news when:1d", "space rocket exploration"),
+        ("stock market economy breaking news India when:1d", "stock market trading finance")
     ]
     
-    selected_query, image_tag = random.choice(topics)
+    selected_query, image_search_keyword = random.choice(topics)
     print(f"Fetching Urgent 24h Breaking News for query: '{selected_query}'...")
     
     live_headline = fetch_live_google_news(selected_query)
     
     if not live_headline:
         print("No urgent RSS headline found, retrying alternative breaking topic...")
-        for query, tag in topics:
+        for query, keyword in topics:
             live_headline = fetch_live_google_news(query)
             if live_headline:
-                image_tag = tag
+                image_search_keyword = keyword
                 break
 
     if not live_headline:
         print("Error: Could not fetch real live news RSS feed. Aborting execution.")
-        return None, image_tag
+        return None, image_search_keyword
 
     print(f"SUCCESS: Urgent Breaking Headline Fetched -> {live_headline}")
 
@@ -81,26 +81,19 @@ def generate_news_with_gemini():
                 contents=prompt,
             )
             text = response.text.strip()
-            return text, image_tag
+            return text, image_search_keyword
         except Exception as e:
             print(f"Gemini API Attempt {attempt+1} Failed: {e}")
             time.sleep(2)
             
-    return None, image_tag
+    return None, image_search_keyword
 
-def get_dynamic_unique_image_url(image_tag):
-    """Generates dynamic unique HD photo URL matching news topic"""
-    category_photos = {
-        "india": ["photo-1532375810709-75b1da00537c", "photo-1524492412937-b28074a5d7da"],
-        "geopolitics": ["photo-1541872703-74c5e44368f9", "photo-1486406146926-c627a92ad1ab"],
-        "technology": ["photo-1518770660439-4636190af475", "photo-1526374965328-7f61d4dc18c5"],
-        "space": ["photo-1451187580459-43490279c0fa", "photo-1517976487492-5750f3195933"],
-        "finance": ["photo-1611974789855-9c2a0a7236a3", "photo-1590283603385-17ffb3a7f29f"]
-    }
-    photo_list = category_photos.get(image_tag, category_photos["india"])
-    selected_photo = random.choice(photo_list)
-    random_sig = random.randint(100, 9999)
-    return f"https://images.unsplash.com/{selected_photo}?w=1080&q=80&sig={random_sig}"
+def get_dynamic_unique_image_url(keyword):
+    """Generates 100% UNIQUE HD photo URL directly matching news search terms (no repeating list)"""
+    encoded_keyword = urllib.parse.quote(keyword)
+    random_sig = random.randint(10000, 999999)
+    # Dynamic Unsplash Engine with random signature bypasses caching and fixed groups
+    return f"https://source.unsplash.com/1080x1080/?{encoded_keyword}&sig={random_sig}"
 
 def send_direct_to_buffer(post_text, image_url):
     """Posts INSTANTLY to live social media channels via Buffer Direct Publish Engine"""
@@ -155,10 +148,10 @@ def send_direct_to_buffer(post_text, image_url):
         print(f"Direct Post Result for {service} ({ch_id}): {post_res.text}")
 
 if __name__ == "__main__":
-    text, image_tag = generate_news_with_gemini()
+    text, image_keyword = generate_news_with_gemini()
     if text:
-        image_url = get_dynamic_unique_image_url(image_tag)
-        print(f"Final Image URL: {image_url}")
+        image_url = get_dynamic_unique_image_url(image_keyword)
+        print(f"Final Dynamic Image URL: {image_url}")
         print(f"Post Text:\n{text}")
         send_direct_to_buffer(text, image_url)
     else:
