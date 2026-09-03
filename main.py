@@ -14,7 +14,7 @@ HEADERS = {
 }
 
 def fetch_live_google_news(topic_query):
-    """Fetches STRICT 24-Hour Real Live Breaking News Headlines from Google News RSS"""
+    """Fetches STRICT 24-Hour Breaking News Headlines from Google RSS"""
     formatted_query = topic_query.replace(' ', '+')
     rss_url = f"https://news.google.com/rss/search?q={formatted_query}&hl=en-IN&gl=IN&ceid=IN:en"
     try:
@@ -31,7 +31,7 @@ def generate_news_with_gemini():
         print("Error: GEMINI_API_KEY Missing!")
         return None, "india"
 
-    # Strictly 24h Breaking Topics + Matching HD Image Categories
+    # Strictly 24h Breaking Topics + Matching HD Categories
     topics = [
         ("India breaking news live updates when:1d", "india"),
         ("world geopolitics breaking news live when:1d", "geopolitics"),
@@ -45,7 +45,6 @@ def generate_news_with_gemini():
     
     live_headline = fetch_live_google_news(selected_query)
     
-    # Fallback Loop
     if not live_headline:
         print("Primary query skipped, checking fallback 24h news topics...")
         for query, cat in topics:
@@ -75,22 +74,28 @@ def generate_news_with_gemini():
     )
 
     client = genai.Client(api_key=GEMINI_API_KEY)
-    for attempt in range(3):
-        try:
-            response = client.models.generate_content(
-                model='gemini-3.6-flash',
-                contents=prompt,
-            )
-            text = response.text.strip()
-            return text, category
-        except Exception as e:
-            print(f"Gemini API Attempt {attempt+1} Failed: {e}")
-            time.sleep(2)
-            
+    
+    # Model Fallback Engine: Try flash 3.6 first, fallback to 2.5 on quota/rate limit error
+    models_to_try = ['gemini-3.6-flash', 'gemini-2.5-flash']
+    
+    for model_name in models_to_try:
+        print(f"Attempting content generation using model: {model_name}...")
+        for attempt in range(2):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                )
+                text = response.text.strip()
+                return text, category
+            except Exception as e:
+                print(f"Gemini API ({model_name}) Attempt {attempt+1} Failed: {e}")
+                time.sleep(2)
+                
     return None, category
 
 def get_dynamic_unique_image_url(category):
-    """Generates 100% Unique, Dynamic HD Image URL fully compatible with Instagram & Twitter"""
+    """Generates 100% Unique HD Image URL Fully Compatible with Instagram & Twitter API"""
     category_photos = {
         "india": [
             "photo-1532375810709-75b1da00537c", "photo-1524492412937-b28074a5d7da", 
@@ -116,7 +121,7 @@ def get_dynamic_unique_image_url(category):
     photo_list = category_photos.get(category, category_photos["india"])
     selected_photo = random.choice(photo_list)
     random_sig = random.randint(1000, 99999)
-    # Direct high-res cropped 1080x1080 CDN URL with random cache-busting signature
+    # Direct high-res 1080x1080 Unsplash CDN image URL
     return f"https://images.unsplash.com/{selected_photo}?w=1080&h=1080&fit=crop&q=80&sig={random_sig}"
 
 def send_direct_to_buffer(post_text, image_url):
