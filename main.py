@@ -94,35 +94,26 @@ def generate_news_with_gemini():
                 
     return None, category
 
-def get_dynamic_unique_image_url(category):
-    """Generates 100% Unique HD Image URL Fully Compatible with Instagram & Twitter API"""
-    category_photos = {
-        "india": [
-            "photo-1532375810709-75b1da00537c", "photo-1524492412937-b28074a5d7da", 
-            "photo-1587474260584-136574528ed5", "photo-1506461883276-594a12b11cf3"
-        ],
-        "geopolitics": [
-            "photo-1541872703-74c5e44368f9", "photo-1486406146926-c627a92ad1ab", 
-            "photo-1526304640581-d334cdbbf45e", "photo-1529107386315-e1a2ed48a620"
-        ],
-        "technology": [
-            "photo-1518770660439-4636190af475", "photo-1526374965328-7f61d4dc18c5", 
-            "photo-1485827404703-89b55fcc595e", "photo-1531297484001-80022131f5a1"
-        ],
-        "space": [
-            "photo-1451187580459-43490279c0fa", "photo-1517976487492-5750f3195933", 
-            "photo-1446776811953-b23d57bd21aa", "photo-1506703719100-a0f3a48c0f86"
-        ],
-        "finance": [
-            "photo-1611974789855-9c2a0a7236a3", "photo-1590283603385-17ffb3a7f29f", 
-            "photo-1535320903710-d993d3d77d29", "photo-1460925895917-afdab827c52f"
-        ]
-    }
-    photo_list = category_photos.get(category, category_photos["india"])
-    selected_photo = random.choice(photo_list)
-    random_sig = random.randint(1000, 99999)
-    # Direct high-res 1080x1080 Unsplash CDN image URL
-    return f"https://images.unsplash.com/{selected_photo}?w=1080&h=1080&fit=crop&q=80&sig={random_sig}"
+def get_dynamic_unique_image_url(news_text, category):
+    """Dynamically fetches relevant HD Image based on News Keywords to prevent repeat image bugs"""
+    # Headline text se stop-words hata kar main keywords extract karna
+    words = [w.strip("!?:;,'\"") for w in news_text.split() if len(w) > 3 and not w.startswith("#")]
+    search_keyword = "+".join(words[:2]) if words else category
+    
+    random_sig = random.randint(10000, 99999)
+    # Dynamic Unsplash Image search based on specific news topic
+    image_url = f"https://source.unsplash.com/featured/1080x1080/?{search_keyword}&sig={random_sig}"
+    
+    try:
+        res = requests.head(image_url, timeout=5, headers=HEADERS)
+        if res.status_code in [200, 302]:
+            final_url = res.headers.get('Location', image_url)
+            return final_url
+    except Exception as e:
+        print(f"Dynamic Image Redirect Fetch Warning: {e}")
+
+    # Direct Unsplash CDN Fallback with random cache-busting signature
+    return f"https://images.unsplash.com/photo-1506461883276-594a12b11cf3?w=1080&h=1080&fit=crop&q=80&sig={random_sig}"
 
 def send_direct_to_buffer(post_text, image_url):
     """Posts INSTANTLY to live social media channels via Buffer Direct Publish Engine"""
@@ -179,8 +170,8 @@ def send_direct_to_buffer(post_text, image_url):
 if __name__ == "__main__":
     text, category = generate_news_with_gemini()
     if text:
-        image_url = get_dynamic_unique_image_url(category)
-        print(f"Final Image URL: {image_url}")
+        image_url = get_dynamic_unique_image_url(text, category)
+        print(f"Final Matching Image URL: {image_url}")
         print(f"Post Text:\n{text}")
         send_direct_to_buffer(text, image_url)
     else:
