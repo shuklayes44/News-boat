@@ -8,7 +8,7 @@ from google import genai
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 BUFFER_ACCESS_TOKEN = os.getenv("BUFFER_ACCESS_TOKEN")
-PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")  # Optional Pexels fallback
+PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -32,7 +32,6 @@ def generate_news_with_gemini():
         print("Error: GEMINI_API_KEY Missing!")
         return None, "india"
 
-    # Strictly 24h Breaking Topics + Matching HD Categories
     topics = [
         ("India breaking news live updates when:1d", "india"),
         ("world geopolitics breaking news live when:1d", "geopolitics"),
@@ -70,14 +69,14 @@ def generate_news_with_gemini():
         "   - Line 2-3: Core factual news summary\n"
         "   - Line 4: Short engagement question for audience\n"
         "   - Line 5: 4-5 dynamic trending hashtags matching THIS exact news\n"
-        "3. ABSOLUTELY DO NOT ADD ANY SYSTEM CODE TAGS LIKE #WSX_1234 AT THE END.\n"
+        "3. ABSOLUTELY DO NOT ADD ANY SYSTEM CODE TAGS AT THE END.\n"
         "4. Total Length: Under 230 characters."
     )
 
     client = genai.Client(api_key=GEMINI_API_KEY)
     
-    # Model Fallback Engine: Try flash 2.5 first (or 2.0-flash), fallback if needed
-    models_to_try = ['gemini-2.5-flash', 'gemini-1.5-flash']
+    # Fixed Stable Models
+    models_to_try = ['gemini-2.0-flash', 'gemini-1.5-flash']
     
     for model_name in models_to_try:
         print(f"Attempting content generation using model: {model_name}...")
@@ -96,12 +95,11 @@ def generate_news_with_gemini():
     return None, category
 
 def get_dynamic_unique_image_url(news_text, category):
-    """Fetches Dynamic HD Image using Pexels / Direct Unsplash CDN Pools to bypass broken endpoints"""
-    # Extract keywords from headline
+    """Fetches Dynamic HD Image using Pexels or Working Direct CDN Pools"""
     words = [w.strip("!?:;,'\"") for w in news_text.split() if len(w) > 3 and not w.startswith("#")]
     search_keyword = words[0] if words else category
 
-    # Option 1: Pexels API (If PEXELS_API_KEY is available)
+    # Option 1: Pexels API
     if PEXELS_API_KEY:
         try:
             pex_url = f"https://api.pexels.com/v1/search?query={urllib.parse.quote(search_keyword)}&per_page=15"
@@ -115,7 +113,7 @@ def get_dynamic_unique_image_url(news_text, category):
         except Exception as e:
             print(f"Pexels API Fetch Error: {e}")
 
-    # Option 2: Unique CDN Image List per Category (Guaranteed Working HD URLs)
+    # Option 2: Unique Direct Unsplash CDN Fallback Pool
     category_pools = {
         "india": [
             "https://images.unsplash.com/photo-1524492412937-b28074a5d7da?w=1080&h=1080&fit=crop&q=80",
