@@ -8,6 +8,7 @@ from google import genai
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 BUFFER_ACCESS_TOKEN = os.getenv("BUFFER_ACCESS_TOKEN")
+PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")  # Optional Pexels fallback
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -75,8 +76,8 @@ def generate_news_with_gemini():
 
     client = genai.Client(api_key=GEMINI_API_KEY)
     
-    # Model Fallback Engine: Try flash 3.6 first, fallback to 2.5 on quota/rate limit error
-    models_to_try = ['gemini-3.6-flash', 'gemini-2.5-flash']
+    # Model Fallback Engine: Try flash 2.5 first (or 2.0-flash), fallback if needed
+    models_to_try = ['gemini-2.5-flash', 'gemini-1.5-flash']
     
     for model_name in models_to_try:
         print(f"Attempting content generation using model: {model_name}...")
@@ -95,25 +96,58 @@ def generate_news_with_gemini():
     return None, category
 
 def get_dynamic_unique_image_url(news_text, category):
-    """Dynamically fetches relevant HD Image based on News Keywords to prevent repeat image bugs"""
-    # Headline text se stop-words hata kar main keywords extract karna
+    """Fetches Dynamic HD Image using Pexels / Direct Unsplash CDN Pools to bypass broken endpoints"""
+    # Extract keywords from headline
     words = [w.strip("!?:;,'\"") for w in news_text.split() if len(w) > 3 and not w.startswith("#")]
-    search_keyword = "+".join(words[:2]) if words else category
-    
-    random_sig = random.randint(10000, 99999)
-    # Dynamic Unsplash Image search based on specific news topic
-    image_url = f"https://source.unsplash.com/featured/1080x1080/?{search_keyword}&sig={random_sig}"
-    
-    try:
-        res = requests.head(image_url, timeout=5, headers=HEADERS)
-        if res.status_code in [200, 302]:
-            final_url = res.headers.get('Location', image_url)
-            return final_url
-    except Exception as e:
-        print(f"Dynamic Image Redirect Fetch Warning: {e}")
+    search_keyword = words[0] if words else category
 
-    # Direct Unsplash CDN Fallback with random cache-busting signature
-    return f"https://images.unsplash.com/photo-1506461883276-594a12b11cf3?w=1080&h=1080&fit=crop&q=80&sig={random_sig}"
+    # Option 1: Pexels API (If PEXELS_API_KEY is available)
+    if PEXELS_API_KEY:
+        try:
+            pex_url = f"https://api.pexels.com/v1/search?query={urllib.parse.quote(search_keyword)}&per_page=15"
+            pex_headers = {"Authorization": PEXELS_API_KEY}
+            res = requests.get(pex_url, headers=pex_headers, timeout=5)
+            if res.status_code == 200:
+                photos = res.json().get('photos', [])
+                if photos:
+                    selected = random.choice(photos)
+                    return selected['src']['large2x']
+        except Exception as e:
+            print(f"Pexels API Fetch Error: {e}")
+
+    # Option 2: Unique CDN Image List per Category (Guaranteed Working HD URLs)
+    category_pools = {
+        "india": [
+            "https://images.unsplash.com/photo-1524492412937-b28074a5d7da?w=1080&h=1080&fit=crop&q=80",
+            "https://images.unsplash.com/photo-1532375810709-75b1da00537c?w=1080&h=1080&fit=crop&q=80",
+            "https://images.unsplash.com/photo-1587474260584-136574528ed5?w=1080&h=1080&fit=crop&q=80"
+        ],
+        "geopolitics": [
+            "https://images.unsplash.com/photo-1541872703-74c5e44368f9?w=1080&h=1080&fit=crop&q=80",
+            "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=1080&h=1080&fit=crop&q=80",
+            "https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?w=1080&h=1080&fit=crop&q=80"
+        ],
+        "technology": [
+            "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1080&h=1080&fit=crop&q=80",
+            "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=1080&h=1080&fit=crop&q=80",
+            "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?w=1080&h=1080&fit=crop&q=80"
+        ],
+        "space": [
+            "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1080&h=1080&fit=crop&q=80",
+            "https://images.unsplash.com/photo-1517976487492-5750f3195933?w=1080&h=1080&fit=crop&q=80",
+            "https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?w=1080&h=1080&fit=crop&q=80"
+        ],
+        "finance": [
+            "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=1080&h=1080&fit=crop&q=80",
+            "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=1080&h=1080&fit=crop&q=80",
+            "https://images.unsplash.com/photo-1535320903710-d993d3d77d29?w=1080&h=1080&fit=crop&q=80"
+        ]
+    }
+    
+    pool = category_pools.get(category, category_pools["india"])
+    selected_base = random.choice(pool)
+    random_sig = random.randint(1000, 99999)
+    return f"{selected_base}&sig={random_sig}"
 
 def send_direct_to_buffer(post_text, image_url):
     """Posts INSTANTLY to live social media channels via Buffer Direct Publish Engine"""
@@ -130,6 +164,7 @@ def send_direct_to_buffer(post_text, image_url):
     acc_res = requests.post(url, json={"query": "query GetAccount { account { organizations { id } } }"}, headers=headers)
     orgs = acc_res.json().get("data", {}).get("account", {}).get("organizations", [])
     if not orgs:
+        print("Error: No Buffer Organization Found!")
         return
     org_id = orgs[0].get("id")
 
