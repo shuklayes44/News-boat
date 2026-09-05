@@ -75,8 +75,8 @@ def generate_news_with_gemini():
 
     client = genai.Client(api_key=GEMINI_API_KEY)
     
-    # Fixed Stable Models
-    models_to_try = ['gemini-2.0-flash', 'gemini-1.5-flash']
+    # Updated Gemini API Model Names (As requested in logs)
+    models_to_try = ['gemini-3.6-flash', 'gemini-2.5-flash']
     
     for model_name in models_to_try:
         print(f"Attempting content generation using model: {model_name}...")
@@ -113,7 +113,7 @@ def get_dynamic_unique_image_url(news_text, category):
         except Exception as e:
             print(f"Pexels API Fetch Error: {e}")
 
-    # Option 2: Unique Direct Unsplash CDN Fallback Pool
+    # Option 2: Direct Unsplash CDN Fallback Pool
     category_pools = {
         "india": [
             "https://images.unsplash.com/photo-1524492412937-b28074a5d7da?w=1080&h=1080&fit=crop&q=80",
