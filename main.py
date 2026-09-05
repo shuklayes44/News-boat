@@ -15,13 +15,13 @@ HEADERS = {
 }
 
 def fetch_live_google_news(topic_query):
-    """Fetches STRICT 24-Hour Breaking News Headlines from Google RSS"""
+    """Fetches Breaking News Headlines from Google RSS"""
     formatted_query = topic_query.replace(' ', '+')
     rss_url = f"https://news.google.com/rss/search?q={formatted_query}&hl=en-IN&gl=IN&ceid=IN:en"
     try:
         feed = feedparser.parse(rss_url)
         if feed.entries and len(feed.entries) > 0:
-            selected = random.choice(feed.entries[:5])
+            selected = random.choice(feed.entries[:10])
             return selected.title
     except Exception as e:
         print(f"Google News RSS Error: {e}")
@@ -32,21 +32,22 @@ def generate_news_with_gemini():
         print("Error: GEMINI_API_KEY Missing!")
         return None, "india"
 
+    # Cleaned Queries (Removed broken 'when:1d' so RSS never fails)
     topics = [
-        ("India breaking news live updates when:1d", "india"),
-        ("world geopolitics breaking news live when:1d", "geopolitics"),
-        ("technology AI news breaking launch when:1d", "technology"),
-        ("ISRO NASA space launch breaking news when:1d", "space"),
-        ("stock market Nifty Sensex breaking news when:1d", "finance")
+        ("India breaking news live updates", "india"),
+        ("world geopolitics breaking news live", "geopolitics"),
+        ("technology AI news breaking launch", "technology"),
+        ("ISRO NASA space launch breaking news", "space"),
+        ("stock market Nifty Sensex breaking news", "finance")
     ]
     
     selected_query, category = random.choice(topics)
-    print(f"Fetching 24h Live Breaking News for query: '{selected_query}'...")
+    print(f"Fetching Live Breaking News for query: '{selected_query}'...")
     
     live_headline = fetch_live_google_news(selected_query)
     
     if not live_headline:
-        print("Primary query skipped, checking fallback 24h news topics...")
+        print("Primary query skipped, checking fallback news topics...")
         for query, cat in topics:
             live_headline = fetch_live_google_news(query)
             if live_headline:
@@ -75,7 +76,7 @@ def generate_news_with_gemini():
 
     client = genai.Client(api_key=GEMINI_API_KEY)
     
-    # Updated Gemini API Model Names (As requested in logs)
+    # Aapka exact model setup
     models_to_try = ['gemini-3.6-flash', 'gemini-2.5-flash']
     
     for model_name in models_to_try:
