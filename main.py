@@ -14,7 +14,6 @@ BUFFER_ACCESS_TOKEN = os.getenv("BUFFER_ACCESS_TOKEN")
 GITHUB_LOGO_URL = "https://raw.githubusercontent.com/shuklayes44/News-boat/main/logo.png"
 
 def get_font(font_size=42, bold=True):
-    """Download clean Roboto/Montserrat sans-serif font for professional English news cards"""
     font_filename = "Roboto-Bold.ttf" if bold else "Roboto-Regular.ttf"
     if not os.path.exists(font_filename):
         try:
@@ -31,7 +30,6 @@ def get_font(font_size=42, bold=True):
     return ImageFont.load_default()
 
 def fetch_live_google_news(topic_query):
-    """Fetch fresh breaking headlines in English from Google News RSS"""
     formatted_query = topic_query.replace(' ', '+')
     rss_url = f"https://news.google.com/rss/search?q={formatted_query}&hl=en-IN&gl=IN&ceid=IN:en"
     try:
@@ -85,8 +83,8 @@ def generate_news_with_gemini():
 
     client = genai.Client(api_key=GEMINI_API_KEY)
     
-    # Corrected model names for google-genai SDK
-    models_to_try = ['gemini-2.5-flash', 'gemini-2.0-flash']
+    # Exact Model String requested by Google API Error Log
+    models_to_try = ['gemini-1.5-flash', 'models/gemini-1.5-flash', 'gemini-1.5-pro']
     
     for model_name in models_to_try:
         print(f"Attempting content generation using model: {model_name}...")
@@ -118,18 +116,10 @@ def get_dynamic_base_image(category):
     return random.choice(pool)
 
 def create_news_card_overlay(base_img_url, headline_text, category_badge):
-    """
-    Creates Twitter-Style News Card Graphic:
-    - Top Category Pill Badge
-    - Top Right Logo Placement
-    - Gradient Dark Overlay Box
-    - Bold Multi-line Wrapped English Headline
-    """
     try:
         res = requests.get(base_img_url, timeout=10)
         img = Image.open(BytesIO(res.content)).convert("RGBA").resize((1080, 1080))
 
-        # Dark overlay for better text contrast
         overlay = Image.new("RGBA", (1080, 1080), (0, 0, 0, 0))
         draw_ov = ImageDraw.Draw(overlay)
         
@@ -142,12 +132,12 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
         img = Image.alpha_composite(img, overlay)
         draw = ImageDraw.Draw(img)
 
-        # 1. Top Category Pill Badge (Top-Left)
+        # Top Category Pill Badge
         badge_font = get_font(28, bold=True)
         draw.rounded_rectangle([(40, 40), (280, 95)], radius=12, fill=(225, 29, 72, 255))
         draw.text((60, 52), category_badge, fill="white", font=badge_font)
 
-        # 2. Logo Overlay (Top-Right)
+        # Logo Overlay
         try:
             logo_res = requests.get(GITHUB_LOGO_URL, timeout=5)
             if logo_res.status_code == 200:
@@ -156,14 +146,11 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
         except Exception as e:
             print(f"Logo Overlay Error: {e}")
 
-        # 3. Text Formatting & Word Wrap for Headline
+        # Text Formatting & Word Wrap
         clean_headline = headline_text.split(" - ")[0]
         title_font = get_font(44, bold=True)
         
-        # Wrap text at ~32 characters per line for 1080px width
         wrapped_lines = textwrap.wrap(clean_headline, width=32)
-        
-        # Limit to max 3 lines on image card
         display_lines = wrapped_lines[:3]
         
         y_text = 640
@@ -251,7 +238,7 @@ if __name__ == "__main__":
         if local_card_path:
             public_image_url = upload_to_imgur(local_card_path)
             if not public_image_url:
-                public_image_url = base_img # Fallback
+                public_image_url = base_img
             
             print(f"Generated News Card Public URL: {public_image_url}")
             send_direct_to_buffer(text, public_image_url)
