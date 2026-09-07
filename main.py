@@ -3,7 +3,7 @@ import time
 import requests
 import random
 import feedparser
-import google.generativeai as genai
+from google import genai
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 
@@ -11,7 +11,6 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 BUFFER_ACCESS_TOKEN = os.getenv("BUFFER_ACCESS_TOKEN")
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
 
-# Repository Logo URL
 GITHUB_LOGO_URL = "https://raw.githubusercontent.com/shuklayes44/News-boat/main/logo.png"
 
 HEADERS = {
@@ -19,7 +18,6 @@ HEADERS = {
 }
 
 def get_hindi_font(font_size=46):
-    """Google Fonts se Auto-Download Hindi Font (Hind-Bold)"""
     font_path = "Hind-Bold.ttf"
     if not os.path.exists(font_path):
         try:
@@ -37,7 +35,6 @@ def get_hindi_font(font_size=46):
     return ImageFont.load_default()
 
 def fetch_live_google_news(topic_query):
-    """Google News RSS Feed se Hindi Breaking Headlines Fetch Karna"""
     formatted_query = topic_query.replace(' ', '+')
     rss_url = f"https://news.google.com/rss/search?q={formatted_query}&hl=hi&gl=IN&ceid=IN:hi"
     try:
@@ -89,21 +86,22 @@ def generate_news_with_gemini():
         "3. Add 4-5 relevant hashtags."
     )
 
-    # Gemini API Configuration
-    genai.configure(api_key=GEMINI_API_KEY)
+    client = genai.Client(api_key=GEMINI_API_KEY)
     
-    # Models array fallback
-    models_to_try = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']
+    # Exact model string accepted by google-genai SDK
+    models_to_try = ['gemini-1.5-flash', 'gemini-1.5-pro']
     
     for model_name in models_to_try:
         print(f"Attempting content generation using model: {model_name}...")
         for attempt in range(2):
             try:
-                model = genai.GenerativeModel(model_name)
-                response = model.generate_content(prompt)
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                )
                 if response and response.text:
                     text = response.text.strip()
-                    print(f"SUCCESS: Text Generated using {model_name}")
+                    print(f"SUCCESS: Generated content using {model_name}")
                     return text, category, live_headline
             except Exception as e:
                 print(f"Gemini API ({model_name}) Attempt {attempt+1} Failed: {e}")
@@ -112,7 +110,6 @@ def generate_news_with_gemini():
     return None, category, live_headline
 
 def get_dynamic_base_image(category):
-    """Category wise dynamic HD images"""
     category_pools = {
         "india": ["https://images.unsplash.com/photo-1524492412937-b28074a5d7da?w=1080&h=1080&fit=crop&q=80"],
         "geopolitics": ["https://images.unsplash.com/photo-1541872703-74c5e44368f9?w=1080&h=1080&fit=crop&q=80"],
@@ -124,28 +121,22 @@ def get_dynamic_base_image(category):
     return random.choice(pool)
 
 def create_news_card_overlay(base_img_url, headline_text):
-    """News Card Graphic Generation with Pillow"""
     try:
         res = requests.get(base_img_url, timeout=10)
         img = Image.open(BytesIO(res.content)).convert("RGBA").resize((1080, 1080))
 
-        # Bottom Overlay Gradient
         overlay = Image.new("RGBA", (1080, 1080), (0, 0, 0, 0))
         draw_ov = ImageDraw.Draw(overlay)
-        draw_ov.rectangle([(0, 620), (1080, 1080)], fill=(0, 0, 0, 200)) # Dark Overlay
-        draw_ov.rectangle([(0, 610), (1080, 620)], fill=(255, 0, 0, 255)) # Red Accent Line
+        draw_ov.rectangle([(0, 620), (1080, 1080)], fill=(0, 0, 0, 200))
+        draw_ov.rectangle([(0, 610), (1080, 620)], fill=(255, 0, 0, 255))
         img = Image.alpha_composite(img, overlay)
 
         draw = ImageDraw.Draw(img)
-
-        # Hindi Font Auto Load
         font = get_hindi_font(46)
 
-        # Headline Text Formatting
         headline_clean = headline_text.split(" - ")[0]
         draw.text((40, 700), headline_clean[:75], fill="yellow", font=font)
 
-        # Logo Paste
         try:
             logo_res = requests.get(GITHUB_LOGO_URL, timeout=5)
             if logo_res.status_code == 200:
@@ -162,7 +153,6 @@ def create_news_card_overlay(base_img_url, headline_text):
         return None
 
 def upload_to_imgur(image_path):
-    """Imgur Direct Upload for Public HTTP Image Link"""
     try:
         headers = {"Authorization": "Client-ID 544172540b707d0"}
         with open(image_path, "rb") as file:
@@ -175,7 +165,6 @@ def upload_to_imgur(image_path):
     return None
 
 def send_direct_to_buffer(post_text, image_url):
-    """Buffer API Integration for Direct Posting"""
     if not BUFFER_ACCESS_TOKEN or not image_url:
         print("Error: Missing Access Token or Image URL!")
         return
@@ -235,7 +224,7 @@ if __name__ == "__main__":
         if local_card_path:
             public_image_url = upload_to_imgur(local_card_path)
             if not public_image_url:
-                public_image_url = base_img # Fallback
+                public_image_url = base_img
             
             print(f"Generated News Card Public URL: {public_image_url}")
             send_direct_to_buffer(text, public_image_url)
