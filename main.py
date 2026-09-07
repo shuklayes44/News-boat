@@ -49,19 +49,21 @@ def generate_news_with_gemini():
         print("Error: GEMINI_API_KEY Missing!")
         return None, "india", None
 
+    # Topics aligned with: Global, India, Economic, Geopolitical, Tech, Stock Market
     topics = [
         ("India breaking news live updates", "india"),
-        ("world geopolitics breaking news live", "geopolitics"),
+        ("global world breaking news today", "global"),
+        ("world geopolitics international relations breaking news", "geopolitics"),
         ("technology AI news breaking launch", "technology"),
-        ("ISRO NASA space launch breaking news", "space"),
-        ("stock market Nifty Sensex breaking news", "finance")
+        ("stock market Nifty Sensex breaking news", "stock market"),
+        ("Indian economy business economic policy news", "economic"),
     ]
-    
+
     selected_query, category = random.choice(topics)
     print(f"Fetching Live Breaking News for query: '{selected_query}'...")
-    
+
     live_headline = fetch_live_google_news(selected_query)
-    
+
     if not live_headline:
         print("Primary query skipped, checking fallback news topics...")
         for query, cat in topics:
@@ -91,8 +93,10 @@ def generate_news_with_gemini():
     )
 
     client = genai.Client(api_key=GEMINI_API_KEY)
-    models_to_try = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
-    
+    # Old models (2.5/2.0/1.5-flash) are deprecated/retired by Google (404 NOT_FOUND).
+    # Current supported models as of Sept 2026:
+    models_to_try = ['gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-flash-latest']
+
     for model_name in models_to_try:
         print(f"Attempting content generation using model: {model_name}...")
         for attempt in range(4):
@@ -106,7 +110,7 @@ def generate_news_with_gemini():
             except Exception as e:
                 print(f"Gemini API ({model_name}) Attempt {attempt+1} Failed: {e}")
                 time.sleep(5 * (attempt + 1))
-                
+
     return None, category, live_headline
 
 def get_dynamic_unique_image_url(news_text, category):
@@ -127,7 +131,7 @@ def get_dynamic_unique_image_url(news_text, category):
         except Exception as e:
             print(f"Pexels API Fetch Error: {e}")
 
-    # Lorem Picsum Direct Direct Image (No Redirect issues)
+    # Lorem Picsum Direct Image (No Redirect issues)
     sig_rand = random.randint(100, 99999)
     return f"https://picsum.photos/seed/{sig_rand}/1080/1080"
 
@@ -136,22 +140,25 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
         res = requests.get(base_img_url, timeout=12)
         if res.status_code != 200:
             res = requests.get("https://picsum.photos/1080/1080", timeout=12)
-            
+
         img = Image.open(BytesIO(res.content)).convert("RGBA").resize((1080, 1080))
 
-        # Dark Box overlay at bottom
+        # Dark Box overlay at bottom (Dainik Jagran / Times Now style news card)
         overlay = Image.new("RGBA", (1080, 1080), (0, 0, 0, 0))
         draw_ov = ImageDraw.Draw(overlay)
-        
-        # Red Accent Bar
+
+        # Top gradient-ish darken strip so logo/badge stay readable on any photo
+        draw_ov.rectangle([(0, 0), (1080, 130)], fill=(0, 0, 0, 140))
+
+        # Red Accent Bar (separator between photo and text block)
         draw_ov.rectangle([(0, 560), (1080, 570)], fill=(220, 38, 38, 255))
-        # Solid dark backdrop
+        # Solid dark backdrop for headline block
         draw_ov.rectangle([(0, 570), (1080, 1080)], fill=(15, 23, 42, 245))
-        
+
         img = Image.alpha_composite(img, overlay)
         draw = ImageDraw.Draw(img)
 
-        # Top Category Tag (RED BADGE)
+        # Top Category Tag (RED BADGE) - top right
         badge_font = get_font(28, bold=True)
         draw.rounded_rectangle([(740, 35), (1040, 95)], radius=8, fill=(220, 38, 38, 255))
         draw.text((760, 48), category_badge.upper(), fill="white", font=badge_font)
@@ -160,16 +167,26 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
         try:
             logo_res = requests.get(GITHUB_LOGO_URL, timeout=5)
             if logo_res.status_code == 200:
-                logo = Image.open(BytesIO(logo_res.content)).convert("RGBA").resize((200, 70))
-                img.paste(logo, (35, 35), logo)
+                logo = Image.open(BytesIO(logo_res.content)).convert("RGBA")
+                # Preserve aspect ratio within a max box instead of hard squashing
+                max_w, max_h = 220, 80
+                logo_ratio = min(max_w / logo.width, max_h / logo.height)
+                new_size = (int(logo.width * logo_ratio), int(logo.height * logo_ratio))
+                logo = logo.resize(new_size)
+                img.paste(logo, (35, 30), logo)
         except Exception as e:
             print(f"Logo Overlay Error: {e}")
+
+        # BREAKING strip just above the accent bar for extra punch
+        breaking_font = get_font(26, bold=True)
+        draw.rectangle([(0, 520), (260, 560)], fill=(220, 38, 38, 255))
+        draw.text((15, 528), "🚨 BREAKING", fill="white", font=breaking_font)
 
         # Headline Layout
         clean_headline = headline_text.split(" - ")[0]
         title_font = get_font(44, bold=True)
         wrapped_lines = textwrap.wrap(clean_headline, width=30)[:3]
-        
+
         y_text = 610
         for idx, line in enumerate(wrapped_lines):
             line_color = "#FACC15" if idx == 0 else "#FFFFFF"
@@ -190,9 +207,9 @@ def upload_image_to_freehost(image_path):
         url = "https://freeimage.host/api/1/upload"
         with open(image_path, "rb") as file:
             encoded_string = base64.b64encode(file.read()).decode('utf-8')
-        
+
         payload = {
-            "key": "6d207e02198a847aa98d0a2a901485a5", # Public API Key
+            "key": "6d207e02198a847aa98d0a2a901485a5",  # Public API Key
             "action": "upload",
             "source": encoded_string,
             "format": "json"
@@ -234,7 +251,7 @@ def send_direct_to_buffer(post_text, image_url):
         "Authorization": f"Bearer {BUFFER_ACCESS_TOKEN}",
         "Content-Type": "application/json"
     }
-    
+
     acc_res = requests.post(url, json={"query": "query GetAccount { account { organizations { id } } }"}, headers=headers)
     orgs = acc_res.json().get("data", {}).get("account", {}).get("organizations", [])
     if not orgs:
@@ -252,7 +269,7 @@ def send_direct_to_buffer(post_text, image_url):
     for ch in channels:
         ch_id = ch.get("id")
         service = ch.get("service")
-        
+
         extra_metadata = ', metadata: { instagram: { type: post, shouldShareToFeed: true } }' if service.lower() == 'instagram' else ''
         media_asset = f', assets: [{{ image: {{ url: "{image_url}" }} }}]'
 
@@ -281,11 +298,11 @@ if __name__ == "__main__":
     if text and headline:
         base_img = get_dynamic_unique_image_url(text, category)
         card_file = create_news_card_overlay(base_img, headline, category)
-        
+
         final_image_url = None
         if card_file:
             final_image_url = upload_image_to_freehost(card_file)
-            
+
         if not final_image_url:
             final_image_url = base_img
 
