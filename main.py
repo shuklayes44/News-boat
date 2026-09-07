@@ -14,22 +14,22 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 BUFFER_ACCESS_TOKEN = os.getenv("BUFFER_ACCESS_TOKEN")
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
 
-GITHUB_LOGO_URL = "https://raw.githubusercontent.com/shuklayes44/News-boat/main/logo.png"
+# Local paths (repo is private, so we read committed files instead of
+# downloading over HTTP from raw.githubusercontent.com, which needs auth
+# for private repos and was returning 404).
+LOGO_PATH = "logo.png"
+FONT_BOLD_PATH = "fonts/Roboto-Bold.ttf"
+FONT_REGULAR_PATH = "fonts/Roboto-Regular.ttf"
 
 def get_font(font_size=42, bold=True):
-    font_filename = "Roboto-Bold.ttf" if bold else "Roboto-Regular.ttf"
-    if not os.path.exists(font_filename):
+    font_path = FONT_BOLD_PATH if bold else FONT_REGULAR_PATH
+    if os.path.exists(font_path):
         try:
-            url = f"https://github.com/google/fonts/raw/main/apache/roboto/static/{font_filename}"
-            res = requests.get(url, timeout=10)
-            if res.status_code == 200:
-                with open(font_filename, "wb") as f:
-                    f.write(res.content)
+            return ImageFont.truetype(font_path, font_size)
         except Exception as e:
-            print(f"Font download error: {e}")
-
-    if os.path.exists(font_filename):
-        return ImageFont.truetype(font_filename, font_size)
+            print(f"Font load error ({font_path}): {e}")
+    else:
+        print(f"WARNING: Font file not found at {font_path} — text will render tiny using default font. Add the .ttf file to your repo.")
     return ImageFont.load_default()
 
 def fetch_live_google_news(topic_query):
@@ -163,17 +163,17 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
         draw.rounded_rectangle([(740, 35), (1040, 95)], radius=8, fill=(220, 38, 38, 255))
         draw.text((760, 48), category_badge.upper(), fill="white", font=badge_font)
 
-        # Brand Logo Top Left
+        # Brand Logo Top Left (loaded from local repo file, not downloaded)
         try:
-            logo_res = requests.get(GITHUB_LOGO_URL, timeout=5)
-            if logo_res.status_code == 200:
-                logo = Image.open(BytesIO(logo_res.content)).convert("RGBA")
-                # Preserve aspect ratio within a max box instead of hard squashing
+            if os.path.exists(LOGO_PATH):
+                logo = Image.open(LOGO_PATH).convert("RGBA")
                 max_w, max_h = 220, 80
                 logo_ratio = min(max_w / logo.width, max_h / logo.height)
                 new_size = (int(logo.width * logo_ratio), int(logo.height * logo_ratio))
                 logo = logo.resize(new_size)
                 img.paste(logo, (35, 30), logo)
+            else:
+                print(f"WARNING: Logo not found at {LOGO_PATH} — check the file is committed to the repo root.")
         except Exception as e:
             print(f"Logo Overlay Error: {e}")
 
