@@ -55,7 +55,7 @@ def generate_news_with_gemini():
         print("Error: GEMINI_API_KEY Missing!")
         return None, "india", None
 
-    # Topic Categories
+    # Topics List
     topics = [
         ("India breaking news live updates hindi", "india"),
         ("world geopolitics breaking news hindi", "geopolitics"),
@@ -93,8 +93,8 @@ def generate_news_with_gemini():
 
     client = genai.Client(api_key=GEMINI_API_KEY)
     
-    # Valid Models for google-genai SDK
-    models_to_try = ['models/gemini-1.5-flash', 'models/gemini-1.5-pro']
+    # Exact Working Models for google-genai SDK
+    models_to_try = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
     
     for model_name in models_to_try:
         print(f"Attempting content generation using model: {model_name}...")
@@ -106,6 +106,7 @@ def generate_news_with_gemini():
                 )
                 if response and response.text:
                     text = response.text.strip()
+                    print(f"SUCCESS: Generated content using {model_name}")
                     return text, category, live_headline
             except Exception as e:
                 print(f"Gemini API ({model_name}) Attempt {attempt+1} Failed: {e}")
