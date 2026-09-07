@@ -91,12 +91,11 @@ def generate_news_with_gemini():
 
     client = genai.Client(api_key=GEMINI_API_KEY)
     
-    # Updated Models Array with Stable Fallbacks
     models_to_try = ['gemini-3.6-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
     
     for model_name in models_to_try:
         print(f"Attempting content generation using model: {model_name}...")
-        for attempt in range(4):  # 4 Retries with Backoff for 503 high demand
+        for attempt in range(4):
             try:
                 response = client.models.generate_content(
                     model=model_name,
@@ -106,7 +105,7 @@ def generate_news_with_gemini():
                 return text, category, live_headline
             except Exception as e:
                 print(f"Gemini API ({model_name}) Attempt {attempt+1} Failed: {e}")
-                time.sleep(5 * (attempt + 1))  # Exponential delay (5s, 10s, 15s)
+                time.sleep(5 * (attempt + 1))
                 
     return None, category, live_headline
 
@@ -179,16 +178,21 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
         print(f"News Card Overlay Creation Error: {e}")
         return None
 
-def upload_to_imgur(image_path):
+def upload_to_catbox(image_path):
+    """Uploads locally generated image card to Catbox CDN"""
     try:
-        headers = {"Authorization": "Client-ID 544172540b707d0"}
+        url = "https://catbox.moe/user/api.php"
+        data = {"reqtype": "fileupload"}
         with open(image_path, "rb") as file:
-            res = requests.post("https://api.imgur.com/3/upload", headers=headers, files={"image": file})
-            data = res.json()
-            if data.get("success"):
-                return data["data"]["link"]
+            files = {"fileToUpload": file}
+            res = requests.post(url, data=data, files=files, timeout=15)
+            if res.status_code == 200 and res.text.startswith("http"):
+                print(f"Catbox Upload SUCCESS: {res.text.strip()}")
+                return res.text.strip()
+            else:
+                print(f"Catbox Upload Fail Response: {res.text}")
     except Exception as e:
-        print(f"Imgur Upload Error: {e}")
+        print(f"Catbox Upload Error: {e}")
     return None
 
 def send_direct_to_buffer(post_text, image_url):
@@ -251,7 +255,7 @@ if __name__ == "__main__":
         
         final_image_url = None
         if card_file:
-            final_image_url = upload_to_imgur(card_file)
+            final_image_url = upload_to_catbox(card_file)
             
         if not final_image_url:
             final_image_url = base_img
