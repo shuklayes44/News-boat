@@ -12,8 +12,8 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 BUFFER_ACCESS_TOKEN = os.getenv("BUFFER_ACCESS_TOKEN")
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
 
-# Aapka Raw Logo Link (Repository me 'logo.png' ke naam se hona chahiye)
-GITHUB_LOGO_URL = "https://raw.githubusercontent.com/shuklayes421/YOUR_REPO_NAME/main/logo.png"
+# Repo name ke hisab se logo URL update karein (e.g. News-boat)
+GITHUB_LOGO_URL = "https://raw.githubusercontent.com/shuklayes44/News-boat/main/logo.png"
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -94,21 +94,24 @@ def generate_news_with_gemini():
     models_to_try = ['gemini-2.5-flash', 'gemini-1.5-flash']
     
     for model_name in models_to_try:
+        print(f"Attempting content generation using model: {model_name}...")
         for attempt in range(2):
             try:
                 response = client.models.generate_content(
                     model=model_name,
                     contents=prompt,
                 )
-                text = response.text.strip()
-                return text, category, live_headline
+                if response and response.text:
+                    text = response.text.strip()
+                    return text, category, live_headline
             except Exception as e:
+                print(f"Gemini API ({model_name}) Attempt {attempt+1} Failed: {e}")
                 time.sleep(2)
                 
-    return None, category, None
+    return None, category, live_headline
 
 def get_dynamic_base_image(category):
-    """Fetches Dynamic HD Image from Unsplash/Pexels Pool"""
+    """Fetches Dynamic HD Image from Unsplash Pool"""
     category_pools = {
         "india": ["https://images.unsplash.com/photo-1524492412937-b28074a5d7da?w=1080&h=1080&fit=crop&q=80"],
         "geopolitics": ["https://images.unsplash.com/photo-1541872703-74c5e44368f9?w=1080&h=1080&fit=crop&q=80"],
@@ -236,4 +239,4 @@ if __name__ == "__main__":
             print(f"Generated News Card Public URL: {public_image_url}")
             send_direct_to_buffer(text, public_image_url)
     else:
-        print("RSS News fetch failed.")
+        print(f"Skipping Post: Gemini Generation Failed. (Headline was: {headline})")
