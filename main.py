@@ -15,8 +15,7 @@ BUFFER_ACCESS_TOKEN = os.getenv("BUFFER_ACCESS_TOKEN")
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
 
 # Local paths (repo is private, so we read committed files instead of
-# downloading over HTTP from raw.githubusercontent.com, which needs auth
-# for private repos and was returning 404).
+# downloading over HTTP from raw.githubusercontent.com).
 LOGO_PATH = "logo.png"
 FONT_BOLD_PATH = "fonts/Roboto-Bold.ttf"
 FONT_REGULAR_PATH = "fonts/Roboto-Regular.ttf"
@@ -93,8 +92,6 @@ def generate_news_with_gemini():
     )
 
     client = genai.Client(api_key=GEMINI_API_KEY)
-    # Old models (2.5/2.0/1.5-flash) are deprecated/retired by Google (404 NOT_FOUND).
-    # Current supported models as of Sept 2026:
     models_to_try = ['gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-flash-latest']
 
     for model_name in models_to_try:
@@ -117,7 +114,6 @@ def get_dynamic_unique_image_url(news_text, category):
     words = [w.strip("!?:;,'\"") for w in news_text.split() if len(w) > 3 and not w.startswith("#")]
     search_keyword = words[0] if words else category
 
-    # Pexels Multi-Page Random Fetching
     if PEXELS_API_KEY:
         try:
             pex_url = f"https://api.pexels.com/v1/search?query={urllib.parse.quote(search_keyword)}&per_page=30"
@@ -131,7 +127,6 @@ def get_dynamic_unique_image_url(news_text, category):
         except Exception as e:
             print(f"Pexels API Fetch Error: {e}")
 
-    # Lorem Picsum Direct Image (No Redirect issues)
     sig_rand = random.randint(100, 99999)
     return f"https://picsum.photos/seed/{sig_rand}/1080/1080"
 
@@ -143,14 +138,13 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
 
         img = Image.open(BytesIO(res.content)).convert("RGBA").resize((1080, 1080))
 
-        # Dark Box overlay at bottom (Dainik Jagran / Times Now style news card)
         overlay = Image.new("RGBA", (1080, 1080), (0, 0, 0, 0))
         draw_ov = ImageDraw.Draw(overlay)
 
-        # Top gradient-ish darken strip so logo/badge stay readable on any photo
+        # Top darken strip so logo/badge stay readable on any photo
         draw_ov.rectangle([(0, 0), (1080, 130)], fill=(0, 0, 0, 140))
 
-        # Red Accent Bar (separator between photo and text block)
+        # Red Accent Bar
         draw_ov.rectangle([(0, 560), (1080, 570)], fill=(220, 38, 38, 255))
         # Solid dark backdrop for headline block
         draw_ov.rectangle([(0, 570), (1080, 1080)], fill=(15, 23, 42, 245))
@@ -163,21 +157,32 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
         draw.rounded_rectangle([(740, 35), (1040, 95)], radius=8, fill=(220, 38, 38, 255))
         draw.text((760, 48), category_badge.upper(), fill="white", font=badge_font)
 
-        # Brand Logo Top Left (loaded from local repo file, not downloaded)
+        # Brand Logo Top Left — pasted onto a solid white rounded backdrop
+        # so it stays visible regardless of the logo's own colors or the
+        # photo behind it (fixes the "logo not visible" issue).
         try:
             if os.path.exists(LOGO_PATH):
                 logo = Image.open(LOGO_PATH).convert("RGBA")
-                max_w, max_h = 220, 80
+                max_w, max_h = 200, 70
                 logo_ratio = min(max_w / logo.width, max_h / logo.height)
                 new_size = (int(logo.width * logo_ratio), int(logo.height * logo_ratio))
                 logo = logo.resize(new_size)
-                img.paste(logo, (35, 30), logo)
+
+                pad = 14
+                box_w, box_h = new_size[0] + pad * 2, new_size[1] + pad * 2
+                logo_bg = Image.new("RGBA", (box_w, box_h), (0, 0, 0, 0))
+                bg_draw = ImageDraw.Draw(logo_bg)
+                bg_draw.rounded_rectangle(
+                    [(0, 0), (box_w, box_h)], radius=12, fill=(255, 255, 255, 235)
+                )
+                img.paste(logo_bg, (35, 30), logo_bg)
+                img.paste(logo, (35 + pad, 30 + pad), logo)
             else:
                 print(f"WARNING: Logo not found at {LOGO_PATH} — check the file is committed to the repo root.")
         except Exception as e:
             print(f"Logo Overlay Error: {e}")
 
-        # BREAKING strip just above the accent bar for extra punch
+        # BREAKING strip just above the accent bar
         breaking_font = get_font(26, bold=True)
         draw.rectangle([(0, 520), (260, 560)], fill=(220, 38, 38, 255))
         draw.text((15, 528), "🚨 BREAKING", fill="white", font=breaking_font)
@@ -201,15 +206,13 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
         return None
 
 def upload_image_to_freehost(image_path):
-    """Reliable Direct Image Host Uploader"""
-    # Attempt 1: FreeImage.host
     try:
         url = "https://freeimage.host/api/1/upload"
         with open(image_path, "rb") as file:
             encoded_string = base64.b64encode(file.read()).decode('utf-8')
 
         payload = {
-            "key": "6d207e02198a847aa98d0a2a901485a5",  # Public API Key
+            "key": "6d207e02198a847aa98d0a2a901485a5",
             "action": "upload",
             "source": encoded_string,
             "format": "json"
@@ -224,7 +227,6 @@ def upload_image_to_freehost(image_path):
     except Exception as e:
         print(f"FreeImage Host Error: {e}")
 
-    # Attempt 2: tmpfiles.org
     try:
         url = "https://tmpfiles.org/api/v1/upload"
         with open(image_path, "rb") as file:
