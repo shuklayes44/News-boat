@@ -90,7 +90,6 @@ def generate_news_with_gemini():
     )
 
     client = genai.Client(api_key=GEMINI_API_KEY)
-    
     models_to_try = ['gemini-3.6-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
     
     for model_name in models_to_try:
@@ -110,12 +109,14 @@ def generate_news_with_gemini():
     return None, category, live_headline
 
 def get_dynamic_unique_image_url(news_text, category):
+    """Fetches Dynamic HD Unique Photo (No Repeated Standard Static Images)"""
     words = [w.strip("!?:;,'\"") for w in news_text.split() if len(w) > 3 and not w.startswith("#")]
     search_keyword = words[0] if words else category
 
+    # Pexels Multi-Page Random Fetching
     if PEXELS_API_KEY:
         try:
-            pex_url = f"https://api.pexels.com/v1/search?query={urllib.parse.quote(search_keyword)}&per_page=15"
+            pex_url = f"https://api.pexels.com/v1/search?query={urllib.parse.quote(search_keyword)}&per_page=30"
             pex_headers = {"Authorization": PEXELS_API_KEY}
             res = requests.get(pex_url, headers=pex_headers, timeout=5)
             if res.status_code == 200:
@@ -126,50 +127,57 @@ def get_dynamic_unique_image_url(news_text, category):
         except Exception as e:
             print(f"Pexels API Fetch Error: {e}")
 
-    category_pools = {
-        "india": ["https://images.unsplash.com/photo-1524492412937-b28074a5d7da?w=1080&h=1080&fit=crop&q=80"],
-        "geopolitics": ["https://images.unsplash.com/photo-1541872703-74c5e44368f9?w=1080&h=1080&fit=crop&q=80"],
-        "technology": ["https://images.unsplash.com/photo-1518770660439-4636190af475?w=1080&h=1080&fit=crop&q=80"],
-        "space": ["https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1080&h=1080&fit=crop&q=80"],
-        "finance": ["https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=1080&h=1080&fit=crop&q=80"]
-    }
-    
-    pool = category_pools.get(category, category_pools["india"])
-    return random.choice(pool)
+    # Dynamic Unsplash Keyword Engine (Guarantees Different Images Every Time)
+    clean_keyword = urllib.parse.quote(search_keyword)
+    sig_rand = random.randint(100, 99999)
+    return f"https://source.unsplash.com/1080x1080/?{clean_keyword},{category}&sig={sig_rand}"
 
 def create_news_card_overlay(base_img_url, headline_text, category_badge):
+    """Creates Dainik Jagran / Times Now Style News Card Banner"""
     try:
-        res = requests.get(base_img_url, timeout=10)
+        res = requests.get(base_img_url, timeout=12)
+        if res.status_code != 200:
+            # Fallback direct high-res news bg
+            res = requests.get("https://picsum.photos/1080/1080", timeout=12)
+            
         img = Image.open(BytesIO(res.content)).convert("RGBA").resize((1080, 1080))
 
+        # Dark Premium Gradient Box at bottom
         overlay = Image.new("RGBA", (1080, 1080), (0, 0, 0, 0))
         draw_ov = ImageDraw.Draw(overlay)
-        draw_ov.rectangle([(0, 580), (1080, 1080)], fill=(12, 18, 28, 235))
-        draw_ov.rectangle([(0, 572), (1080, 580)], fill=(225, 29, 72, 255))
+        
+        # Red Accent Bar
+        draw_ov.rectangle([(0, 560), (1080, 570)], fill=(220, 38, 38, 255))
+        # Solid dark backdrop for crisp font reading
+        draw_ov.rectangle([(0, 570), (1080, 1080)], fill=(15, 23, 42, 245))
         
         img = Image.alpha_composite(img, overlay)
         draw = ImageDraw.Draw(img)
 
-        badge_font = get_font(26, bold=True)
-        draw.rounded_rectangle([(780, 40), (1040, 95)], radius=10, fill=(225, 29, 72, 255))
-        draw.text((800, 52), category_badge.upper(), fill="white", font=badge_font)
+        # Top Category Tag (RED BADGE)
+        badge_font = get_font(28, bold=True)
+        draw.rounded_rectangle([(740, 35), (1040, 95)], radius=8, fill=(220, 38, 38, 255))
+        draw.text((760, 48), category_badge.upper(), fill="white", font=badge_font)
 
+        # Brand Logo Top Left
         try:
             logo_res = requests.get(GITHUB_LOGO_URL, timeout=5)
             if logo_res.status_code == 200:
-                logo = Image.open(BytesIO(logo_res.content)).convert("RGBA").resize((180, 65))
-                img.paste(logo, (40, 40), logo)
+                logo = Image.open(BytesIO(logo_res.content)).convert("RGBA").resize((200, 70))
+                img.paste(logo, (35, 35), logo)
         except Exception as e:
             print(f"Logo Overlay Error: {e}")
 
+        # Headline Layout (Yellow + White Colors)
         clean_headline = headline_text.split(" - ")[0]
-        title_font = get_font(42, bold=True)
-        wrapped_lines = textwrap.wrap(clean_headline, width=32)[:3]
+        title_font = get_font(44, bold=True)
+        wrapped_lines = textwrap.wrap(clean_headline, width=30)[:3]
         
-        y_text = 620
-        for line in wrapped_lines:
-            draw.text((45, y_text), line, fill="#FACC15" if y_text == 620 else "#FFFFFF", font=title_font)
-            y_text += 60
+        y_text = 610
+        for idx, line in enumerate(wrapped_lines):
+            line_color = "#FACC15" if idx == 0 else "#FFFFFF"  # First line yellow, rest white
+            draw.text((40, y_text), line, fill=line_color, font=title_font)
+            y_text += 65
 
         output_path = "final_card.png"
         img.convert("RGB").save(output_path)
@@ -179,13 +187,13 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
         return None
 
 def upload_to_catbox(image_path):
-    """Uploads locally generated image card to Catbox CDN"""
+    """Uploads card image to public CDN"""
     try:
         url = "https://catbox.moe/user/api.php"
         data = {"reqtype": "fileupload"}
         with open(image_path, "rb") as file:
             files = {"fileToUpload": file}
-            res = requests.post(url, data=data, files=files, timeout=15)
+            res = requests.post(url, data=data, files=files, timeout=20)
             if res.status_code == 200 and res.text.startswith("http"):
                 print(f"Catbox Upload SUCCESS: {res.text.strip()}")
                 return res.text.strip()
