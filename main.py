@@ -16,7 +16,6 @@ PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
 GITHUB_LOGO_URL = "https://raw.githubusercontent.com/shuklayes44/News-boat/main/logo.png"
 
 def get_font(font_size=42, bold=True):
-    """Downloads Roboto/Montserrat clean font for News Banner Cards"""
     font_filename = "Roboto-Bold.ttf" if bold else "Roboto-Regular.ttf"
     if not os.path.exists(font_filename):
         try:
@@ -33,7 +32,6 @@ def get_font(font_size=42, bold=True):
     return ImageFont.load_default()
 
 def fetch_live_google_news(topic_query):
-    """Fetches Breaking News Headlines from Google RSS"""
     formatted_query = topic_query.replace(' ', '+')
     rss_url = f"https://news.google.com/rss/search?q={formatted_query}&hl=en-IN&gl=IN&ceid=IN:en"
     try:
@@ -93,12 +91,12 @@ def generate_news_with_gemini():
 
     client = genai.Client(api_key=GEMINI_API_KEY)
     
-    # Same Gemini model array requested
-    models_to_try = ['gemini-3.6-flash', 'gemini-2.5-flash']
+    # Updated Models Array with Stable Fallbacks
+    models_to_try = ['gemini-3.6-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
     
     for model_name in models_to_try:
         print(f"Attempting content generation using model: {model_name}...")
-        for attempt in range(2):
+        for attempt in range(4):  # 4 Retries with Backoff for 503 high demand
             try:
                 response = client.models.generate_content(
                     model=model_name,
@@ -108,12 +106,11 @@ def generate_news_with_gemini():
                 return text, category, live_headline
             except Exception as e:
                 print(f"Gemini API ({model_name}) Attempt {attempt+1} Failed: {e}")
-                time.sleep(2)
+                time.sleep(5 * (attempt + 1))  # Exponential delay (5s, 10s, 15s)
                 
     return None, category, live_headline
 
 def get_dynamic_unique_image_url(news_text, category):
-    """Fetches Dynamic HD Base Background Image"""
     words = [w.strip("!?:;,'\"") for w in news_text.split() if len(w) > 3 and not w.startswith("#")]
     search_keyword = words[0] if words else category
 
@@ -142,12 +139,10 @@ def get_dynamic_unique_image_url(news_text, category):
     return random.choice(pool)
 
 def create_news_card_overlay(base_img_url, headline_text, category_badge):
-    """Generates Professional News Graphic Overlay (Jagran/Times Now Style)"""
     try:
         res = requests.get(base_img_url, timeout=10)
         img = Image.open(BytesIO(res.content)).convert("RGBA").resize((1080, 1080))
 
-        # Bottom dark gradient card for headline readability
         overlay = Image.new("RGBA", (1080, 1080), (0, 0, 0, 0))
         draw_ov = ImageDraw.Draw(overlay)
         draw_ov.rectangle([(0, 580), (1080, 1080)], fill=(12, 18, 28, 235))
@@ -156,12 +151,10 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
         img = Image.alpha_composite(img, overlay)
         draw = ImageDraw.Draw(img)
 
-        # Top Right Category Badge
         badge_font = get_font(26, bold=True)
         draw.rounded_rectangle([(780, 40), (1040, 95)], radius=10, fill=(225, 29, 72, 255))
         draw.text((800, 52), category_badge.upper(), fill="white", font=badge_font)
 
-        # Top Left Brand Logo Overlay
         try:
             logo_res = requests.get(GITHUB_LOGO_URL, timeout=5)
             if logo_res.status_code == 200:
@@ -170,7 +163,6 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
         except Exception as e:
             print(f"Logo Overlay Error: {e}")
 
-        # Big Bold Headline Overlay
         clean_headline = headline_text.split(" - ")[0]
         title_font = get_font(42, bold=True)
         wrapped_lines = textwrap.wrap(clean_headline, width=32)[:3]
@@ -188,7 +180,6 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
         return None
 
 def upload_to_imgur(image_path):
-    """Uploads locally generated image card to public URL for Buffer"""
     try:
         headers = {"Authorization": "Client-ID 544172540b707d0"}
         with open(image_path, "rb") as file:
@@ -201,7 +192,6 @@ def upload_to_imgur(image_path):
     return None
 
 def send_direct_to_buffer(post_text, image_url):
-    """Posts INSTANTLY to live social media channels via Buffer Direct Publish Engine"""
     if not BUFFER_ACCESS_TOKEN or not image_url:
         print("Error: BUFFER_ACCESS_TOKEN or Image URL Missing!")
         return
