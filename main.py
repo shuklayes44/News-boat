@@ -5,19 +5,42 @@ import random
 import urllib.parse
 import feedparser
 from google import genai
+from PIL import Image, ImageDraw, ImageFont
+from io import BytesIO
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 BUFFER_ACCESS_TOKEN = os.getenv("BUFFER_ACCESS_TOKEN")
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
 
+# Aapka Raw Logo Link (Repository me 'logo.png' ke naam se hona chahiye)
+GITHUB_LOGO_URL = "https://raw.githubusercontent.com/shuklayes421/YOUR_REPO_NAME/main/logo.png"
+
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 }
 
+def get_hindi_font(font_size=46):
+    """Google Fonts se Auto-Download Hindi Font"""
+    font_path = "Hind-Bold.ttf"
+    if not os.path.exists(font_path):
+        try:
+            print("Downloading Hindi Font (Hind-Bold)...")
+            font_url = "https://github.com/google/fonts/raw/main/ofl/hind/Hind-Bold.ttf"
+            res = requests.get(font_url, timeout=10)
+            if res.status_code == 200:
+                with open(font_path, "wb") as f:
+                    f.write(res.content)
+        except Exception as e:
+            print(f"Font download error: {e}")
+
+    if os.path.exists(font_path):
+        return ImageFont.truetype(font_path, font_size)
+    return ImageFont.load_default()
+
 def fetch_live_google_news(topic_query):
     """Fetches Breaking News Headlines from Google RSS"""
     formatted_query = topic_query.replace(' ', '+')
-    rss_url = f"https://news.google.com/rss/search?q={formatted_query}&hl=en-IN&gl=IN&ceid=IN:en"
+    rss_url = f"https://news.google.com/rss/search?q={formatted_query}&hl=hi&gl=IN&ceid=IN:hi"
     try:
         feed = feedparser.parse(rss_url)
         if feed.entries and len(feed.entries) > 0:
@@ -30,15 +53,14 @@ def fetch_live_google_news(topic_query):
 def generate_news_with_gemini():
     if not GEMINI_API_KEY:
         print("Error: GEMINI_API_KEY Missing!")
-        return None, "india"
+        return None, "india", None
 
-    # Cleaned Queries (Removed broken 'when:1d' so RSS never fails)
     topics = [
-        ("India breaking news live updates", "india"),
-        ("world geopolitics breaking news live", "geopolitics"),
-        ("technology AI news breaking launch", "technology"),
-        ("ISRO NASA space launch breaking news", "space"),
-        ("stock market Nifty Sensex breaking news", "finance")
+        ("India breaking news live updates hindi", "india"),
+        ("world geopolitics breaking news hindi", "geopolitics"),
+        ("technology AI news breaking hindi", "technology"),
+        ("ISRO NASA space launch news hindi", "space"),
+        ("stock market Nifty Sensex breaking news hindi", "finance")
     ]
     
     selected_query, category = random.choice(topics)
@@ -47,7 +69,6 @@ def generate_news_with_gemini():
     live_headline = fetch_live_google_news(selected_query)
     
     if not live_headline:
-        print("Primary query skipped, checking fallback news topics...")
         for query, cat in topics:
             live_headline = fetch_live_google_news(query)
             if live_headline:
@@ -55,32 +76,24 @@ def generate_news_with_gemini():
                 break
 
     if not live_headline:
-        print("Error: Could not fetch real live news RSS feed. Aborting execution.")
-        return None, category
+        print("Error: Could not fetch real live news RSS feed.")
+        return None, category, None
 
     print(f"SUCCESS: Fresh Live Headline Fetched -> {live_headline}")
 
     prompt = (
-        f"STRICT INSTRUCTION: Write a high-impact, factual breaking news post based ONLY on this live headline:\n"
+        f"STRICT INSTRUCTION: Write a high-impact, short news post in Hindi based on this headline:\n"
         f"HEADLINE: '{live_headline}'\n\n"
-        "STRICT FORMATTING RULES:\n"
-        "1. Language: Professional Indian English.\n"
-        "2. Structure:\n"
-        "   - Line 1: 🚨 [CAPS HOOK HEADLINE] with relevant Emoji\n"
-        "   - Line 2-3: Core factual news summary\n"
-        "   - Line 4: Short engagement question for audience\n"
-        "   - Line 5: 4-5 dynamic trending hashtags matching THIS exact news\n"
-        "3. ABSOLUTELY DO NOT ADD ANY SYSTEM CODE TAGS AT THE END.\n"
-        "4. Total Length: Under 230 characters."
+        "STRICT RULES:\n"
+        "1. Write 1 Punchy Line Headline (Max 10-12 words in Hindi).\n"
+        "2. Write 2 Lines Factual Summary.\n"
+        "3. Add 4-5 dynamic hashtags."
     )
 
     client = genai.Client(api_key=GEMINI_API_KEY)
-    
-    # Aapka exact model setup
-    models_to_try = ['gemini-3.6-flash', 'gemini-2.5-flash']
+    models_to_try = ['gemini-2.5-flash', 'gemini-1.5-flash']
     
     for model_name in models_to_try:
-        print(f"Attempting content generation using model: {model_name}...")
         for attempt in range(2):
             try:
                 response = client.models.generate_content(
@@ -88,70 +101,79 @@ def generate_news_with_gemini():
                     contents=prompt,
                 )
                 text = response.text.strip()
-                return text, category
+                return text, category, live_headline
             except Exception as e:
-                print(f"Gemini API ({model_name}) Attempt {attempt+1} Failed: {e}")
                 time.sleep(2)
                 
-    return None, category
+    return None, category, None
 
-def get_dynamic_unique_image_url(news_text, category):
-    """Fetches Dynamic HD Image using Pexels or Working Direct CDN Pools"""
-    words = [w.strip("!?:;,'\"") for w in news_text.split() if len(w) > 3 and not w.startswith("#")]
-    search_keyword = words[0] if words else category
-
-    # Option 1: Pexels API
-    if PEXELS_API_KEY:
-        try:
-            pex_url = f"https://api.pexels.com/v1/search?query={urllib.parse.quote(search_keyword)}&per_page=15"
-            pex_headers = {"Authorization": PEXELS_API_KEY}
-            res = requests.get(pex_url, headers=pex_headers, timeout=5)
-            if res.status_code == 200:
-                photos = res.json().get('photos', [])
-                if photos:
-                    selected = random.choice(photos)
-                    return selected['src']['large2x']
-        except Exception as e:
-            print(f"Pexels API Fetch Error: {e}")
-
-    # Option 2: Direct Unsplash CDN Fallback Pool
+def get_dynamic_base_image(category):
+    """Fetches Dynamic HD Image from Unsplash/Pexels Pool"""
     category_pools = {
-        "india": [
-            "https://images.unsplash.com/photo-1524492412937-b28074a5d7da?w=1080&h=1080&fit=crop&q=80",
-            "https://images.unsplash.com/photo-1532375810709-75b1da00537c?w=1080&h=1080&fit=crop&q=80",
-            "https://images.unsplash.com/photo-1587474260584-136574528ed5?w=1080&h=1080&fit=crop&q=80"
-        ],
-        "geopolitics": [
-            "https://images.unsplash.com/photo-1541872703-74c5e44368f9?w=1080&h=1080&fit=crop&q=80",
-            "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=1080&h=1080&fit=crop&q=80",
-            "https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?w=1080&h=1080&fit=crop&q=80"
-        ],
-        "technology": [
-            "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1080&h=1080&fit=crop&q=80",
-            "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=1080&h=1080&fit=crop&q=80",
-            "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?w=1080&h=1080&fit=crop&q=80"
-        ],
-        "space": [
-            "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1080&h=1080&fit=crop&q=80",
-            "https://images.unsplash.com/photo-1517976487492-5750f3195933?w=1080&h=1080&fit=crop&q=80",
-            "https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?w=1080&h=1080&fit=crop&q=80"
-        ],
-        "finance": [
-            "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=1080&h=1080&fit=crop&q=80",
-            "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=1080&h=1080&fit=crop&q=80",
-            "https://images.unsplash.com/photo-1535320903710-d993d3d77d29?w=1080&h=1080&fit=crop&q=80"
-        ]
+        "india": ["https://images.unsplash.com/photo-1524492412937-b28074a5d7da?w=1080&h=1080&fit=crop&q=80"],
+        "geopolitics": ["https://images.unsplash.com/photo-1541872703-74c5e44368f9?w=1080&h=1080&fit=crop&q=80"],
+        "technology": ["https://images.unsplash.com/photo-1518770660439-4636190af475?w=1080&h=1080&fit=crop&q=80"],
+        "space": ["https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1080&h=1080&fit=crop&q=80"],
+        "finance": ["https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=1080&h=1080&fit=crop&q=80"]
     }
-    
     pool = category_pools.get(category, category_pools["india"])
-    selected_base = random.choice(pool)
-    random_sig = random.randint(1000, 99999)
-    return f"{selected_base}&sig={random_sig}"
+    return random.choice(pool)
+
+def create_news_card_overlay(base_img_url, headline_text):
+    """Creates Times Now / Jagran Style News Card with Logo & Text"""
+    try:
+        res = requests.get(base_img_url, timeout=10)
+        img = Image.open(BytesIO(res.content)).convert("RGBA").resize((1080, 1080))
+
+        # Dark Gradient Overlay At Bottom
+        overlay = Image.new("RGBA", (1080, 1080), (0, 0, 0, 0))
+        draw_ov = ImageDraw.Draw(overlay)
+        draw_ov.rectangle([(0, 620), (1080, 1080)], fill=(0, 0, 0, 200)) # Dark Overlay
+        draw_ov.rectangle([(0, 610), (1080, 620)], fill=(255, 0, 0, 255)) # Red Accent Line
+        img = Image.alpha_composite(img, overlay)
+
+        draw = ImageDraw.Draw(img)
+
+        # Auto Load Hindi Font
+        font = get_hindi_font(46)
+
+        # Headline Formatting
+        headline_clean = headline_text.split(" - ")[0]
+        draw.text((40, 700), headline_clean[:75], fill="yellow", font=font)
+
+        # Paste Logo
+        try:
+            logo_res = requests.get(GITHUB_LOGO_URL, timeout=5)
+            if logo_res.status_code == 200:
+                logo = Image.open(BytesIO(logo_res.content)).convert("RGBA").resize((180, 70))
+                img.paste(logo, (850, 40), logo)
+        except Exception as e:
+            print(f"Logo Paste Error: {e}")
+
+        output_path = "final_card.png"
+        img.convert("RGB").save(output_path)
+        return output_path
+    except Exception as e:
+        print(f"Pillow Overlay Error: {e}")
+        return None
+
+def upload_to_imgur(image_path):
+    """Uploads local generated card to Imgur to get public HTTP URL for Buffer"""
+    try:
+        headers = {"Authorization": "Client-ID 544172540b707d0"}
+        with open(image_path, "rb") as file:
+            res = requests.post("https://api.imgur.com/3/upload", headers=headers, files={"image": file})
+            data = res.json()
+            if data.get("success"):
+                return data["data"]["link"]
+    except Exception as e:
+        print(f"Imgur Upload Error: {e}")
+    return None
 
 def send_direct_to_buffer(post_text, image_url):
-    """Posts INSTANTLY to live social media channels via Buffer Direct Publish Engine"""
+    """Posts directly via Buffer GraphQL API"""
     if not BUFFER_ACCESS_TOKEN or not image_url:
-        print("Error: BUFFER_ACCESS_TOKEN or Image URL Missing!")
+        print("Error: Missing Access Token or Image URL!")
         return
 
     url = "https://api.buffer.com/graphql"
@@ -163,7 +185,6 @@ def send_direct_to_buffer(post_text, image_url):
     acc_res = requests.post(url, json={"query": "query GetAccount { account { organizations { id } } }"}, headers=headers)
     orgs = acc_res.json().get("data", {}).get("account", {}).get("organizations", [])
     if not orgs:
-        print("Error: No Buffer Organization Found!")
         return
     org_id = orgs[0].get("id")
 
@@ -199,14 +220,20 @@ def send_direct_to_buffer(post_text, image_url):
         }}
         """
         post_res = requests.post(url, json={"query": mutation}, headers=headers)
-        print(f"Direct Post Result for {service} ({ch_id}): {post_res.text}")
+        print(f"Post Result for {service}: {post_res.text}")
 
 if __name__ == "__main__":
-    text, category = generate_news_with_gemini()
-    if text:
-        image_url = get_dynamic_unique_image_url(text, category)
-        print(f"Final Matching Image URL: {image_url}")
-        print(f"Post Text:\n{text}")
-        send_direct_to_buffer(text, image_url)
+    text, category, headline = generate_news_with_gemini()
+    if text and headline:
+        base_img = get_dynamic_base_image(category)
+        local_card_path = create_news_card_overlay(base_img, headline)
+        
+        if local_card_path:
+            public_image_url = upload_to_imgur(local_card_path)
+            if not public_image_url:
+                public_image_url = base_img # Fallback
+            
+            print(f"Generated News Card Public URL: {public_image_url}")
+            send_direct_to_buffer(text, public_image_url)
     else:
-        print("Skipping execution: Live RSS news fetch failed.")
+        print("RSS News fetch failed.")
