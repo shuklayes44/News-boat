@@ -2,7 +2,7 @@ name: Run News Bot
 
 on:
   schedule:
-    - cron: '0 0,4,8,12,16,20 * * *'  # Exact original timing (IST: 5:30 AM, 9:30 AM, 1:30 PM, 5:30 PM, 9:30 PM, 1:30 AM)
+    - cron: '0 0,3,6,9,12,15,18,21 * * *'  # 8x/day, every 3 hours (IST: 5:30, 8:30, 11:30, 2:30, 5:30, 8:30, 11:30, 2:30)
   workflow_dispatch:
 
 jobs:
@@ -21,6 +21,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install Pillow requests google-genai feedparser
+
+      - name: Random Human-like Delay
+        run: |
+          DELAY=$(( RANDOM % 1200 ))
+          echo "Sleeping for $DELAY seconds (~$((DELAY/60)) min) before posting, to avoid an exact robotic schedule..."
+          sleep $DELAY
 
       - name: Run Main Script
         env:
