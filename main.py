@@ -2,9 +2,8 @@ import os
 import time
 import requests
 import random
-import urllib.parse
 import feedparser
-from google import genai
+import google.generativeai as genai
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 
@@ -55,7 +54,6 @@ def generate_news_with_gemini():
         print("Error: GEMINI_API_KEY Missing!")
         return None, "india", None
 
-    # Topics List
     topics = [
         ("India breaking news live updates hindi", "india"),
         ("world geopolitics breaking news hindi", "geopolitics"),
@@ -91,22 +89,21 @@ def generate_news_with_gemini():
         "3. Add 4-5 relevant hashtags."
     )
 
-    client = genai.Client(api_key=GEMINI_API_KEY)
+    # Gemini API Configuration
+    genai.configure(api_key=GEMINI_API_KEY)
     
-    # Exact Working Models for google-genai SDK
-    models_to_try = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
+    # Models array fallback
+    models_to_try = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']
     
     for model_name in models_to_try:
         print(f"Attempting content generation using model: {model_name}...")
         for attempt in range(2):
             try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                )
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content(prompt)
                 if response and response.text:
                     text = response.text.strip()
-                    print(f"SUCCESS: Generated content using {model_name}")
+                    print(f"SUCCESS: Text Generated using {model_name}")
                     return text, category, live_headline
             except Exception as e:
                 print(f"Gemini API ({model_name}) Attempt {attempt+1} Failed: {e}")
