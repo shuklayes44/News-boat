@@ -5,6 +5,7 @@ import random
 import urllib.parse
 import feedparser
 import textwrap
+import base64
 from google import genai
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
@@ -90,7 +91,7 @@ def generate_news_with_gemini():
     )
 
     client = genai.Client(api_key=GEMINI_API_KEY)
-    models_to_try = ['gemini-3.6-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
+    models_to_try = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
     
     for model_name in models_to_try:
         print(f"Attempting content generation using model: {model_name}...")
@@ -109,7 +110,6 @@ def generate_news_with_gemini():
     return None, category, live_headline
 
 def get_dynamic_unique_image_url(news_text, category):
-    """Fetches Dynamic HD Unique Photo (No Repeated Standard Static Images)"""
     words = [w.strip("!?:;,'\"") for w in news_text.split() if len(w) > 3 and not w.startswith("#")]
     search_keyword = words[0] if words else category
 
@@ -127,28 +127,25 @@ def get_dynamic_unique_image_url(news_text, category):
         except Exception as e:
             print(f"Pexels API Fetch Error: {e}")
 
-    # Dynamic Unsplash Keyword Engine (Guarantees Different Images Every Time)
-    clean_keyword = urllib.parse.quote(search_keyword)
+    # Lorem Picsum Direct Direct Image (No Redirect issues)
     sig_rand = random.randint(100, 99999)
-    return f"https://source.unsplash.com/1080x1080/?{clean_keyword},{category}&sig={sig_rand}"
+    return f"https://picsum.photos/seed/{sig_rand}/1080/1080"
 
 def create_news_card_overlay(base_img_url, headline_text, category_badge):
-    """Creates Dainik Jagran / Times Now Style News Card Banner"""
     try:
         res = requests.get(base_img_url, timeout=12)
         if res.status_code != 200:
-            # Fallback direct high-res news bg
             res = requests.get("https://picsum.photos/1080/1080", timeout=12)
             
         img = Image.open(BytesIO(res.content)).convert("RGBA").resize((1080, 1080))
 
-        # Dark Premium Gradient Box at bottom
+        # Dark Box overlay at bottom
         overlay = Image.new("RGBA", (1080, 1080), (0, 0, 0, 0))
         draw_ov = ImageDraw.Draw(overlay)
         
         # Red Accent Bar
         draw_ov.rectangle([(0, 560), (1080, 570)], fill=(220, 38, 38, 255))
-        # Solid dark backdrop for crisp font reading
+        # Solid dark backdrop
         draw_ov.rectangle([(0, 570), (1080, 1080)], fill=(15, 23, 42, 245))
         
         img = Image.alpha_composite(img, overlay)
@@ -168,14 +165,14 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
         except Exception as e:
             print(f"Logo Overlay Error: {e}")
 
-        # Headline Layout (Yellow + White Colors)
+        # Headline Layout
         clean_headline = headline_text.split(" - ")[0]
         title_font = get_font(44, bold=True)
         wrapped_lines = textwrap.wrap(clean_headline, width=30)[:3]
         
         y_text = 610
         for idx, line in enumerate(wrapped_lines):
-            line_color = "#FACC15" if idx == 0 else "#FFFFFF"  # First line yellow, rest white
+            line_color = "#FACC15" if idx == 0 else "#FFFFFF"
             draw.text((40, y_text), line, fill=line_color, font=title_font)
             y_text += 65
 
@@ -186,21 +183,45 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
         print(f"News Card Overlay Creation Error: {e}")
         return None
 
-def upload_to_catbox(image_path):
-    """Uploads card image to public CDN"""
+def upload_image_to_freehost(image_path):
+    """Reliable Direct Image Host Uploader"""
+    # Attempt 1: FreeImage.host
     try:
-        url = "https://catbox.moe/user/api.php"
-        data = {"reqtype": "fileupload"}
+        url = "https://freeimage.host/api/1/upload"
         with open(image_path, "rb") as file:
-            files = {"fileToUpload": file}
-            res = requests.post(url, data=data, files=files, timeout=20)
-            if res.status_code == 200 and res.text.startswith("http"):
-                print(f"Catbox Upload SUCCESS: {res.text.strip()}")
-                return res.text.strip()
-            else:
-                print(f"Catbox Upload Fail Response: {res.text}")
+            encoded_string = base64.b64encode(file.read()).decode('utf-8')
+        
+        payload = {
+            "key": "6d207e02198a847aa98d0a2a901485a5", # Public API Key
+            "action": "upload",
+            "source": encoded_string,
+            "format": "json"
+        }
+        res = requests.post(url, data=payload, timeout=20)
+        if res.status_code == 200:
+            data = res.json()
+            direct_url = data.get("image", {}).get("url")
+            if direct_url:
+                print(f"FreeImage Host Upload SUCCESS: {direct_url}")
+                return direct_url
     except Exception as e:
-        print(f"Catbox Upload Error: {e}")
+        print(f"FreeImage Host Error: {e}")
+
+    # Attempt 2: tmpfiles.org
+    try:
+        url = "https://tmpfiles.org/api/v1/upload"
+        with open(image_path, "rb") as file:
+            files = {"file": file}
+            res = requests.post(url, files=files, timeout=20)
+            if res.status_code == 200:
+                file_url = res.json().get("data", {}).get("url")
+                if file_url:
+                    direct_url = file_url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
+                    print(f"TmpFiles Upload SUCCESS: {direct_url}")
+                    return direct_url
+    except Exception as e:
+        print(f"TmpFiles Upload Error: {e}")
+
     return None
 
 def send_direct_to_buffer(post_text, image_url):
@@ -263,7 +284,7 @@ if __name__ == "__main__":
         
         final_image_url = None
         if card_file:
-            final_image_url = upload_to_catbox(card_file)
+            final_image_url = upload_image_to_freehost(card_file)
             
         if not final_image_url:
             final_image_url = base_img
