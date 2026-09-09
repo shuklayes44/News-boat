@@ -88,11 +88,12 @@ def generate_news_with_gemini():
         "   - Line 4: Short engagement question for audience\n"
         "   - Line 5: 4-5 dynamic trending hashtags matching THIS exact news\n"
         "   - Line 6: A line starting exactly with 'IMG_QUERY:' followed by a short "
-        "2-4 word English stock-photo search phrase describing the single most "
-        "visually relevant subject of this news (e.g. 'book launch event', "
-        "'stock market chart', 'new smartphone', 'parliament building', "
-        "'cricket stadium'). Pick a concrete, photographable subject — not an "
-        "abstract idea.\n"
+        "1-3 word English stock-photo search phrase describing the single most "
+        "visually common, easy-to-find subject of this news (e.g. 'stock market', "
+        "'smartphone', 'parliament building', 'cricket stadium', 'world map'). "
+        "Keep it SIMPLE and generic — prefer a widely-photographed everyday subject "
+        "over a specific/unusual combination of ideas, since it must match a stock "
+        "photo library search.\n"
         "3. ABSOLUTELY DO NOT ADD ANY SYSTEM CODE TAGS AT THE END.\n"
         "4. Total Length of the post itself (excluding the IMG_QUERY line): Under 230 characters."
     )
@@ -128,26 +129,48 @@ def generate_news_with_gemini():
 
     return None, category, live_headline, None
 
+CATEGORY_FALLBACK_IMAGES = {
+    "india": ["indian flag", "india map", "new delhi city"],
+    "global": ["world map", "globe earth", "international flags"],
+    "geopolitics": ["world map", "united nations", "world leaders meeting"],
+    "technology": ["technology computer", "artificial intelligence", "smartphone technology"],
+    "stock market": ["stock market chart", "stock exchange", "business finance"],
+    "economic": ["indian economy", "business finance city", "money currency"],
+}
+
+def _search_pexels(keyword):
+    try:
+        pex_url = f"https://api.pexels.com/v1/search?query={urllib.parse.quote(keyword)}&per_page=30"
+        pex_headers = {"Authorization": PEXELS_API_KEY}
+        res = requests.get(pex_url, headers=pex_headers, timeout=5)
+        if res.status_code == 200:
+            photos = res.json().get('photos', [])
+            if photos:
+                selected = random.choice(photos)
+                return selected['src']['large2x']
+    except Exception as e:
+        print(f"Pexels API Fetch Error ({keyword}): {e}")
+    return None
+
 def get_dynamic_unique_image_url(news_text, category, image_query=None):
+    # Build a list of search terms to try, best (most specific) first.
+    candidates = []
     if image_query:
-        search_keyword = image_query
-    else:
-        # Fallback for the rare case Gemini didn't return an IMG_QUERY line.
-        words = [w.strip("!?:;,'\"") for w in news_text.split() if len(w) > 3 and not w.startswith("#")]
-        search_keyword = words[0] if words else category
+        candidates.append(image_query)
+        words = image_query.split()
+        if len(words) > 2:
+            candidates.append(" ".join(words[:2]))  # simplified version
+
+    candidates.extend(CATEGORY_FALLBACK_IMAGES.get(category, ["news update"]))
 
     if PEXELS_API_KEY:
-        try:
-            pex_url = f"https://api.pexels.com/v1/search?query={urllib.parse.quote(search_keyword)}&per_page=30"
-            pex_headers = {"Authorization": PEXELS_API_KEY}
-            res = requests.get(pex_url, headers=pex_headers, timeout=5)
-            if res.status_code == 200:
-                photos = res.json().get('photos', [])
-                if photos:
-                    selected = random.choice(photos)
-                    return selected['src']['large2x']
-        except Exception as e:
-            print(f"Pexels API Fetch Error: {e}")
+        for keyword in candidates:
+            print(f"Trying Pexels search: '{keyword}'...")
+            result = _search_pexels(keyword)
+            if result:
+                print(f"Pexels match found for: '{keyword}'")
+                return result
+        print("No Pexels match found for any candidate keyword — using random fallback image.")
 
     sig_rand = random.randint(100, 99999)
     return f"https://picsum.photos/seed/{sig_rand}/1080/1080"
