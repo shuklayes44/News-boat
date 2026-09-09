@@ -87,8 +87,14 @@ def generate_news_with_gemini():
         "   - Line 2-3: Core factual news summary\n"
         "   - Line 4: Short engagement question for audience\n"
         "   - Line 5: 4-5 dynamic trending hashtags matching THIS exact news\n"
+        "   - Line 6: A line starting exactly with 'IMG_QUERY:' followed by a short "
+        "2-4 word English stock-photo search phrase describing the single most "
+        "visually relevant subject of this news (e.g. 'book launch event', "
+        "'stock market chart', 'new smartphone', 'parliament building', "
+        "'cricket stadium'). Pick a concrete, photographable subject — not an "
+        "abstract idea.\n"
         "3. ABSOLUTELY DO NOT ADD ANY SYSTEM CODE TAGS AT THE END.\n"
-        "4. Total Length: Under 230 characters."
+        "4. Total Length of the post itself (excluding the IMG_QUERY line): Under 230 characters."
     )
 
     client = genai.Client(api_key=GEMINI_API_KEY)
@@ -102,17 +108,33 @@ def generate_news_with_gemini():
                     model=model_name,
                     contents=prompt,
                 )
-                text = response.text.strip()
-                return text, category, live_headline
+                raw_text = response.text.strip()
+
+                # Pull out the IMG_QUERY line so it doesn't get posted as part
+                # of the actual social media text.
+                image_query = None
+                post_lines = []
+                for line in raw_text.splitlines():
+                    if line.strip().upper().startswith("IMG_QUERY:"):
+                        image_query = line.split(":", 1)[1].strip()
+                    else:
+                        post_lines.append(line)
+
+                text = "\n".join(post_lines).strip()
+                return text, category, live_headline, image_query
             except Exception as e:
                 print(f"Gemini API ({model_name}) Attempt {attempt+1} Failed: {e}")
                 time.sleep(5 * (attempt + 1))
 
-    return None, category, live_headline
+    return None, category, live_headline, None
 
-def get_dynamic_unique_image_url(news_text, category):
-    words = [w.strip("!?:;,'\"") for w in news_text.split() if len(w) > 3 and not w.startswith("#")]
-    search_keyword = words[0] if words else category
+def get_dynamic_unique_image_url(news_text, category, image_query=None):
+    if image_query:
+        search_keyword = image_query
+    else:
+        # Fallback for the rare case Gemini didn't return an IMG_QUERY line.
+        words = [w.strip("!?:;,'\"") for w in news_text.split() if len(w) > 3 and not w.startswith("#")]
+        search_keyword = words[0] if words else category
 
     if PEXELS_API_KEY:
         try:
@@ -296,9 +318,10 @@ def send_direct_to_buffer(post_text, image_url):
         print(f"Direct Post Result for {service} ({ch_id}): {post_res.text}")
 
 if __name__ == "__main__":
-    text, category, headline = generate_news_with_gemini()
+    text, category, headline, image_query = generate_news_with_gemini()
     if text and headline:
-        base_img = get_dynamic_unique_image_url(text, category)
+        print(f"Image search query from Gemini: {image_query}")
+        base_img = get_dynamic_unique_image_url(text, category, image_query)
         card_file = create_news_card_overlay(base_img, headline, category)
 
         final_image_url = None
