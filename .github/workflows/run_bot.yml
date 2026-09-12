@@ -3,16 +3,30 @@ name: Run News Bot
 on:
   schedule:
     - cron: '0 0 * * *'    # 5:30 AM IST
-    - cron: '24 2 * * *'   # 7:54 AM IST
+    - cron: '36 1 * * *'   # 7:06 AM IST
+    - cron: '12 3 * * *'   # 8:42 AM IST
     - cron: '48 4 * * *'   # 10:18 AM IST
-    - cron: '12 7 * * *'   # 12:42 PM IST
+    - cron: '24 6 * * *'   # 11:54 AM IST
+    - cron: '0 8 * * *'    # 1:30 PM IST
     - cron: '36 9 * * *'   # 3:06 PM IST
-    - cron: '0 12 * * *'   # 5:30 PM IST
+    - cron: '12 11 * * *'  # 4:42 PM IST
+    - cron: '48 12 * * *'  # 6:18 PM IST
     - cron: '24 14 * * *'  # 7:54 PM IST
-    - cron: '48 16 * * *'  # 10:18 PM IST
+    - cron: '0 16 * * *'   # 9:30 PM IST
+    - cron: '36 17 * * *'  # 11:06 PM IST
     - cron: '12 19 * * *'  # 12:42 AM IST
-    - cron: '36 21 * * *'  # 3:06 AM IST
+    - cron: '48 20 * * *'  # 2:18 AM IST
+    - cron: '24 22 * * *'  # 3:54 AM IST
   workflow_dispatch:
+    inputs:
+      custom_headline:
+        description: 'Custom headline (chhod do agar normal auto-post chahiye)'
+        required: false
+        default: ''
+      custom_category:
+        description: 'Category (india/global/geopolitics/technology/stock market/economic)'
+        required: false
+        default: 'technology'
 
 jobs:
   run-python-bot:
@@ -32,8 +46,9 @@ jobs:
           pip install Pillow requests google-genai feedparser
 
       - name: Random Human-like Delay
+        if: github.event_name == 'schedule'
         run: |
-          DELAY=$(( RANDOM % 1200 ))
+          DELAY=$(( RANDOM % 900 ))
           echo "Sleeping for $DELAY seconds (~$((DELAY/60)) min) before posting..."
           sleep $DELAY
 
@@ -42,5 +57,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           BUFFER_ACCESS_TOKEN: ${{ secrets.BUFFER_ACCESS_TOKEN }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          CUSTOM_HEADLINE: ${{ github.event.inputs.custom_headline }}
+          CUSTOM_CATEGORY: ${{ github.event.inputs.custom_category }}
         run: |
           python main.py
