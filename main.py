@@ -265,7 +265,10 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
         else:
             break  # generation failed for real (API errors) — don't loop forever
 
-    return None, category, live_headline, NoneCATEGORY_FALLBACK_IMAGES = {
+    return None, category, live_headline, None
+
+
+CATEGORY_FALLBACK_IMAGES = {
     "india": ["indian flag", "india map", "new delhi city"],
     "global": ["world map", "globe earth", "international flags"],
     "geopolitics": ["world map", "united nations", "world leaders meeting"],
