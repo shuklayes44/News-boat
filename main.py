@@ -20,6 +20,48 @@ LOGO_PATH = "logo.png"
 FONT_BOLD_PATH = "fonts/Roboto-Bold.ttf"
 FONT_REGULAR_PATH = "fonts/Roboto-Regular.ttf"
 
+import json
+
+HISTORY_FILE = "posted_history.json"
+HISTORY_MAX = 40
+
+def load_recent_headlines():
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, "r") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"History load error: {e}")
+    return []
+
+def save_recent_headline(headline):
+    history = load_recent_headlines()
+    history.append(headline)
+    history = history[-HISTORY_MAX:]  # keep only the most recent N
+    try:
+        with open(HISTORY_FILE, "w") as f:
+            json.dump(history, f)
+    except Exception as e:
+        print(f"History save error: {e}")
+
+def is_duplicate_headline(new_headline, history):
+    """Treats a headline as a repeat if it's an exact match OR shares most of
+    its significant words with something posted recently — catches the same
+    story reappearing in Google News with slightly reworded wording."""
+    new_words = set(w.lower() for w in new_headline.split() if len(w) > 3)
+    if not new_words:
+        return False
+    for old_headline in history:
+        if new_headline.strip().lower() == old_headline.strip().lower():
+            return True
+        old_words = set(w.lower() for w in old_headline.split() if len(w) > 3)
+        if not old_words:
+            continue
+        overlap = len(new_words & old_words) / len(new_words | old_words)
+        if overlap > 0.55:
+            return True
+    return False
+
 def get_font(font_size=42, bold=True):
     font_path = FONT_BOLD_PATH if bold else FONT_REGULAR_PATH
     if os.path.exists(font_path):
@@ -81,7 +123,7 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
     def fetch_one_headline():
         """Fetch a single candidate headline + category, using the same
         50/50 top-headlines vs category-search mix as before."""
-        use_top_headlines = random.random() < 0.5
+        use_top_headlines = random.random() < 0.7  # prioritize genuinely trending stories
         if use_top_headlines:
             edition = random.choice(["india", "world"])
             cat = "india" if edition == "india" else "global"
@@ -121,6 +163,13 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
                 print("Error: Could not fetch real live news RSS feed. Aborting execution.")
                 return None, category, None, None
             print(f"SUCCESS: Fresh Live Headline Fetched -> {live_headline}")
+
+            recent_history = load_recent_headlines()
+            is_last_attempt = headline_attempt >= HEADLINE_ATTEMPTS - 1
+            if is_duplicate_headline(live_headline, recent_history) and not is_last_attempt:
+                print(f"DUPLICATE: '{live_headline}' looks like something posted recently — trying a different headline.")
+                continue  # skip straight to the next headline_attempt
+
             # On the last allowed attempt, don't let it skip again — we must
             # post *something* rather than never posting at all.
             skip_allowed = headline_attempt < HEADLINE_ATTEMPTS - 1
@@ -202,6 +251,8 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
                             post_lines.append(line)
 
                     text = "\n".join(post_lines).strip()
+                    if not custom_headline:
+                        save_recent_headline(live_headline)
                     return text, category, live_headline, image_query
                 except Exception as e:
                     print(f"Gemini API ({model_name}) Attempt {attempt+1} Failed: {e}")
@@ -215,8 +266,7 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
             break  # generation failed for real (API errors) — don't loop forever
 
     return None, category, live_headline, None
-
-CATEGORY_FALLBACK_IMAGES = {
+    CATEGORY_FALLBACK_IMAGES = {
     "india": ["indian flag", "india map", "new delhi city"],
     "global": ["world map", "globe earth", "international flags"],
     "geopolitics": ["world map", "united nations", "world leaders meeting"],
@@ -262,12 +312,20 @@ def get_dynamic_unique_image_url(news_text, category, image_query=None):
     sig_rand = random.randint(100, 99999)
     return f"https://picsum.photos/seed/{sig_rand}/1080/1080"
 
-BANNER_THEMES = [
-    {"name": "Red Classic", "accent": (220, 38, 38, 255), "headline_bg": (15, 23, 42, 245), "highlight": "#FACC15"},
-    {"name": "Blue Steel", "accent": (37, 99, 235, 255), "headline_bg": (17, 24, 39, 245), "highlight": "#38BDF8"},
-    {"name": "Emerald Edge", "accent": (5, 150, 105, 255), "headline_bg": (12, 30, 26, 245), "highlight": "#34D399"},
-    {"name": "Amber Alert", "accent": (217, 119, 6, 255), "headline_bg": (30, 20, 10, 245), "highlight": "#FBBF24"},
-]
+def _recolor_logo_white(logo):
+    """Returns a white-silhouette version of the logo (keeps alpha/shape,
+    replaces RGB with white) so a dark logo like ours stays visible when
+    placed over a dark photo caption bar."""
+    logo = logo.convert("RGBA")
+    r, g, b, a = logo.split()
+    white = Image.new("L", logo.size, 255)
+    return Image.merge("RGBA", (white, white, white, a))
+
+# Clean, wire-service-style layout variants (Reuters/Economist-like) — all
+# muted/professional, no loud colored badges. Rotating between these keeps
+# posts from looking identical without breaking the minimal aesthetic.
+CARD_LAYOUTS = ["bottom", "top", "bottom_accent"]
+ACCENT_LINE_COLORS = [(30, 58, 95), (91, 33, 33), (27, 67, 50), (55, 55, 60)]  # muted navy/maroon/forest/charcoal
 
 def create_news_card_overlay(base_img_url, headline_text, category_badge):
     try:
@@ -277,71 +335,73 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
 
         img = Image.open(BytesIO(res.content)).convert("RGBA").resize((1080, 1080))
 
-        theme = random.choice(BANNER_THEMES)
-        accent = theme["accent"]
-        headline_bg = theme["headline_bg"]
-        highlight = theme["highlight"]
-        print(f"Using banner theme: {theme['name']}")
+        layout = random.choice(CARD_LAYOUTS)
+        print(f"Using card layout: {layout}")
 
-        overlay = Image.new("RGBA", (1080, 1080), (0, 0, 0, 0))
-        draw_ov = ImageDraw.Draw(overlay)
-
-        # Top darken strip so logo/badge stay readable on any photo
-        draw_ov.rectangle([(0, 0), (1080, 130)], fill=(0, 0, 0, 140))
-
-        # Accent Bar (color rotates with theme)
-        draw_ov.rectangle([(0, 560), (1080, 570)], fill=accent)
-        # Solid dark backdrop for headline block (color rotates with theme)
-        draw_ov.rectangle([(0, 570), (1080, 1080)], fill=headline_bg)
-
-        img = Image.alpha_composite(img, overlay)
-        draw = ImageDraw.Draw(img)
-
-        # Top Category Tag (BADGE) - top right
-        badge_font = get_font(28, bold=True)
-        draw.rounded_rectangle([(740, 35), (1040, 95)], radius=8, fill=accent)
-        draw.text((760, 48), category_badge.upper(), fill="white", font=badge_font)
-
-        # Brand Logo Top Left — pasted onto a solid white rounded backdrop
-        # so it stays visible regardless of the logo's own colors or the
-        # photo behind it (fixes the "logo not visible" issue).
-        try:
-            if os.path.exists(LOGO_PATH):
-                logo = Image.open(LOGO_PATH).convert("RGBA")
-                max_w, max_h = 200, 70
-                logo_ratio = min(max_w / logo.width, max_h / logo.height)
-                new_size = (int(logo.width * logo_ratio), int(logo.height * logo_ratio))
-                logo = logo.resize(new_size)
-
-                pad = 14
-                box_w, box_h = new_size[0] + pad * 2, new_size[1] + pad * 2
-                logo_bg = Image.new("RGBA", (box_w, box_h), (0, 0, 0, 0))
-                bg_draw = ImageDraw.Draw(logo_bg)
-                bg_draw.rounded_rectangle(
-                    [(0, 0), (box_w, box_h)], radius=12, fill=(255, 255, 255, 235)
-                )
-                img.paste(logo_bg, (35, 30), logo_bg)
-                img.paste(logo, (35 + pad, 30 + pad), logo)
-            else:
-                print(f"WARNING: Logo not found at {LOGO_PATH} — check the file is committed to the repo root.")
-        except Exception as e:
-            print(f"Logo Overlay Error: {e}")
-
-        # BREAKING strip just above the accent bar (color rotates with theme)
-        breaking_font = get_font(26, bold=True)
-        draw.rectangle([(0, 520), (260, 560)], fill=accent)
-        draw.text((15, 528), "🚨 BREAKING", fill="white", font=breaking_font)
-
-        # Headline Layout (highlight color rotates with theme)
         clean_headline = headline_text.split(" - ")[0]
-        title_font = get_font(44, bold=True)
-        wrapped_lines = textwrap.wrap(clean_headline, width=30)[:3]
+        title_font = get_font(34, bold=True)
+        wrapped_lines = textwrap.wrap(clean_headline, width=42)[:2]
+        src_font = get_font(20, bold=False)
 
-        y_text = 610
-        for idx, line in enumerate(wrapped_lines):
-            line_color = highlight if idx == 0 else "#FFFFFF"
-            draw.text((40, y_text), line, fill=line_color, font=title_font)
-            y_text += 65
+        logo_img = None
+        if os.path.exists(LOGO_PATH):
+            try:
+                logo = Image.open(LOGO_PATH).convert("RGBA")
+                logo_w = 190
+                ratio = logo_w / logo.width
+                logo = logo.resize((logo_w, int(logo.height * ratio)))
+                logo_img = _recolor_logo_white(logo)
+            except Exception as e:
+                print(f"Logo Overlay Error: {e}")
+        else:
+            print(f"WARNING: Logo not found at {LOGO_PATH} — check the file is committed to the repo root.")
+
+        if layout == "top":
+            # Caption bar at the TOP instead of the bottom.
+            bar_h = 260
+            overlay = Image.new("RGBA", (1080, 1080), (0, 0, 0, 0))
+            odraw = ImageDraw.Draw(overlay)
+            for i in range(bar_h):
+                alpha = int(235 * (1 - i / bar_h))
+                odraw.line([(0, i), (1080, i)], fill=(8, 10, 16, alpha))
+            odraw.rectangle([(0, 0), (1080, 30)], fill=(8, 10, 16, 245))
+            img = Image.alpha_composite(img, overlay)
+            draw = ImageDraw.Draw(img)
+
+            y_text = 30
+            if logo_img:
+                img.paste(logo_img, (40, y_text), logo_img)
+                y_text += logo_img.height + 18
+            for line in wrapped_lines:
+                draw.text((40, y_text), line, fill="#FFFFFF", font=title_font)
+                y_text += 44
+            draw.text((40, y_text + 6), f"worldscopex.com · {category_badge.title()}", fill="#9CA3AF", font=src_font)
+
+        else:
+            # Bottom caption bar (default), optionally with a thin muted
+            # accent line at the very top for subtle variety.
+            bar_h = 260
+            overlay = Image.new("RGBA", (1080, 1080), (0, 0, 0, 0))
+            odraw = ImageDraw.Draw(overlay)
+            for i in range(bar_h):
+                alpha = int(235 * (i / bar_h))
+                odraw.line([(0, 1080 - bar_h + i), (1080, 1080 - bar_h + i)], fill=(8, 10, 16, alpha))
+            odraw.rectangle([(0, 1080 - 50), (1080, 1080)], fill=(8, 10, 16, 245))
+            img = Image.alpha_composite(img, overlay)
+            draw = ImageDraw.Draw(img)
+
+            if layout == "bottom_accent":
+                accent = random.choice(ACCENT_LINE_COLORS)
+                draw.rectangle([(0, 0), (1080, 6)], fill=accent)
+
+            if logo_img:
+                img.paste(logo_img, (40, 1080 - bar_h - logo_img.height - 18), logo_img)
+
+            y_text = 1080 - bar_h + 30
+            for line in wrapped_lines:
+                draw.text((40, y_text), line, fill="#FFFFFF", font=title_font)
+                y_text += 44
+            draw.text((40, y_text + 6), f"worldscopex.com · {category_badge.title()}", fill="#9CA3AF", font=src_font)
 
         output_path = "final_card.png"
         img.convert("RGB").save(output_path)
@@ -438,7 +498,8 @@ def send_direct_to_buffer(post_text, image_url):
         }}
         """
         post_res = requests.post(url, json={"query": mutation}, headers=headers)
-    
+        print(f"Direct Post Result for {service} ({ch_id}): {post_res.text}")
+
 if __name__ == "__main__":
     custom_headline = os.getenv("CUSTOM_HEADLINE", "").strip() or None
     custom_category = os.getenv("CUSTOM_CATEGORY", "").strip() or None
