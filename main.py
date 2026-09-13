@@ -43,10 +43,30 @@ def fetch_live_google_news(topic_query):
         print(f"Google News RSS Error: {e}")
     return None
 
-def generate_news_with_gemini():
+def fetch_top_headlines(edition="india"):
+    """Pulls Google News' actual front-page 'Top Stories' feed instead of a
+    keyword search — this is what genuinely trending/major stories (like a
+    BRICS summit, budget, election result) show up in, since keyword search
+    can easily miss them."""
+    if edition == "world":
+        rss_url = "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en"
+    else:
+        rss_url = "https://news.google.com/rss?hl=en-IN&gl=IN&ceid=IN:en"
+    try:
+        feed = feedparser.parse(rss_url)
+        if feed.entries and len(feed.entries) > 0:
+            # Weight toward the top few (most prominent) stories, but keep
+            # some variety instead of always picking #1.
+            selected = random.choice(feed.entries[:6])
+            return selected.title
+    except Exception as e:
+        print(f"Google News Top Headlines RSS Error: {e}")
+    return None
+
+def generate_news_with_gemini(custom_headline=None, custom_category=None):
     if not GEMINI_API_KEY:
         print("Error: GEMINI_API_KEY Missing!")
-        return None, "india", None
+        return None, "india", None, None
 
     # Topics aligned with: Global, India, Economic, Geopolitical, Tech, Stock Market
     topics = [
@@ -58,74 +78,141 @@ def generate_news_with_gemini():
         ("Indian economy business economic policy news", "economic"),
     ]
 
-    selected_query, category = random.choice(topics)
-    print(f"Fetching Live Breaking News for query: '{selected_query}'...")
+    def fetch_one_headline():
+        """Fetch a single candidate headline + category, using the same
+        50/50 top-headlines vs category-search mix as before."""
+        use_top_headlines = random.random() < 0.5
+        if use_top_headlines:
+            edition = random.choice(["india", "world"])
+            cat = "india" if edition == "india" else "global"
+            print(f"Fetching Google News TOP HEADLINES ({edition} edition)...")
+            headline = fetch_top_headlines(edition)
+        else:
+            selected_query, cat = random.choice(topics)
+            print(f"Fetching Live Breaking News for query: '{selected_query}'...")
+            headline = fetch_live_google_news(selected_query)
 
-    live_headline = fetch_live_google_news(selected_query)
-
-    if not live_headline:
-        print("Primary query skipped, checking fallback news topics...")
-        for query, cat in topics:
-            live_headline = fetch_live_google_news(query)
-            if live_headline:
-                category = cat
-                break
-
-    if not live_headline:
-        print("Error: Could not fetch real live news RSS feed. Aborting execution.")
-        return None, category, None
-
-    print(f"SUCCESS: Fresh Live Headline Fetched -> {live_headline}")
-
-    prompt = (
-        f"STRICT INSTRUCTION: Write a high-impact, factual breaking news post based ONLY on this live headline:\n"
-        f"HEADLINE: '{live_headline}'\n\n"
-        "STRICT FORMATTING RULES:\n"
-        "1. Language: Professional Indian English.\n"
-        "2. Structure:\n"
-        "   - Line 1: 🚨 [CAPS HOOK HEADLINE] with relevant Emoji\n"
-        "   - Line 2-3: Core factual news summary\n"
-        "   - Line 4: Short engagement question for audience\n"
-        "   - Line 5: 4-5 dynamic trending hashtags matching THIS exact news\n"
-        "   - Line 6: A line starting exactly with 'IMG_QUERY:' followed by a short "
-        "1-3 word English stock-photo search phrase describing the single most "
-        "visually common, easy-to-find subject of this news (e.g. 'stock market', "
-        "'smartphone', 'parliament building', 'cricket stadium', 'world map'). "
-        "Keep it SIMPLE and generic — prefer a widely-photographed everyday subject "
-        "over a specific/unusual combination of ideas, since it must match a stock "
-        "photo library search.\n"
-        "3. ABSOLUTELY DO NOT ADD ANY SYSTEM CODE TAGS AT THE END.\n"
-        "4. Total Length of the post itself (excluding the IMG_QUERY line): Under 230 characters."
-    )
+        if not headline:
+            print("Primary query skipped, checking fallback news topics...")
+            headline = fetch_top_headlines("india")
+            cat = "india"
+            if not headline:
+                for query, c in topics:
+                    headline = fetch_live_google_news(query)
+                    if headline:
+                        cat = c
+                        break
+        return headline, cat
 
     client = genai.Client(api_key=GEMINI_API_KEY)
     models_to_try = ['gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-flash-latest']
 
-    for model_name in models_to_try:
-        print(f"Attempting content generation using model: {model_name}...")
-        for attempt in range(4):
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                )
-                raw_text = response.text.strip()
+    HEADLINE_ATTEMPTS = 1 if custom_headline else 3
 
-                # Pull out the IMG_QUERY line so it doesn't get posted as part
-                # of the actual social media text.
-                image_query = None
-                post_lines = []
-                for line in raw_text.splitlines():
-                    if line.strip().upper().startswith("IMG_QUERY:"):
-                        image_query = line.split(":", 1)[1].strip()
-                    else:
-                        post_lines.append(line)
+    for headline_attempt in range(HEADLINE_ATTEMPTS):
+        if custom_headline:
+            live_headline = custom_headline
+            category = custom_category if custom_category else "technology"
+            print(f"Using CUSTOM headline (manual trigger): '{live_headline}' [category: {category}]")
+            skip_allowed = False  # never skip an explicit manual post
+        else:
+            live_headline, category = fetch_one_headline()
+            if not live_headline:
+                print("Error: Could not fetch real live news RSS feed. Aborting execution.")
+                return None, category, None, None
+            print(f"SUCCESS: Fresh Live Headline Fetched -> {live_headline}")
+            # On the last allowed attempt, don't let it skip again — we must
+            # post *something* rather than never posting at all.
+            skip_allowed = headline_attempt < HEADLINE_ATTEMPTS - 1
 
-                text = "\n".join(post_lines).strip()
-                return text, category, live_headline, image_query
-            except Exception as e:
-                print(f"Gemini API ({model_name}) Attempt {attempt+1} Failed: {e}")
-                time.sleep(5 * (attempt + 1))
+        skip_instruction = (
+            "\n0. IMPORTANCE FILTER: This bot only posts genuinely significant, "
+            "high-quality news for a serious global/India news brand — major "
+            "politics, economy, markets, geopolitics, technology, or business "
+            "stories. If this headline is trivial, low-quality, celebrity "
+            "gossip, clickbait, a listicle, an ad/PR piece, or too minor/local "
+            "to matter to a broad audience, respond with EXACTLY the single "
+            "word SKIP and nothing else — no explanation.\n"
+            if skip_allowed else ""
+        )
+
+        prompt = (
+            f"STRICT INSTRUCTION: Write a high-impact, factual breaking news post based ONLY on this live headline:\n"
+            f"HEADLINE: '{live_headline}'\n"
+            f"{skip_instruction}\n"
+            "STRICT FORMATTING RULES:\n"
+            "1. Language: Professional English for a global audience, with special emphasis "
+            "on relevance to Indian readers — where the headline supports it, note the "
+            "impact on India (markets, policy, jobs, prices) without inventing anything not "
+            "in the headline.\n"
+            "2. Structure:\n"
+            "   - Line 1: An attention-grabbing opener with an emoji. Vary the style each "
+            "time — sometimes a bold CAPS hook ('🚨 MARKETS CRASH!'), sometimes a short "
+            "question ('🤔 Is this the end of...?'), sometimes a striking stat "
+            "('📉 ₹8 lakh crore wiped out in a day'). Do not use the exact same opening "
+            "phrase every time.\n"
+            "   - Line 2-3: Core factual summary. Where the headline supports it, include "
+            "ONE specific, concrete number or statistic (e.g. exact figures, percentages, "
+            "amounts) rather than vague words like 'a lot' or 'significant'.\n"
+            "   - Line 4: One short sentence of 'why this matters' — connect the news to a "
+            "real, tangible impact on an ordinary reader's life (money, jobs, prices, "
+            "safety, daily routine) wherever the headline reasonably supports it. If it "
+            "genuinely doesn't apply, give one line of background context instead so a "
+            "reader unfamiliar with the story understands its significance.\n"
+            "   - Line 5: Short engagement question for the audience.\n"
+            "   - Line 6: 4-5 dynamic trending hashtags matching THIS exact news.\n"
+            "   - Line 7: A line starting exactly with 'IMG_QUERY:' followed by a short "
+            "1-3 word English stock-photo search phrase describing the single most "
+            "visually common, easy-to-find subject of this news (e.g. 'stock market', "
+            "'smartphone', 'parliament building', 'cricket stadium', 'world map'). "
+            "Keep it SIMPLE and generic — prefer a widely-photographed everyday subject "
+            "over a specific/unusual combination of ideas, since it must match a stock "
+            "photo library search.\n"
+            "3. ACCURACY IS CRITICAL: only use facts present in the headline itself. Never "
+            "invent, guess, or embellish numbers, causes, or details not given.\n"
+            "4. ABSOLUTELY DO NOT ADD ANY SYSTEM CODE TAGS AT THE END.\n"
+            "5. Total Length of the post itself (excluding the IMG_QUERY line): Under 260 characters."
+        )
+
+        skipped_this_headline = False
+
+        for model_name in models_to_try:
+            print(f"Attempting content generation using model: {model_name}...")
+            for attempt in range(4):
+                try:
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=prompt,
+                    )
+                    raw_text = response.text.strip()
+
+                    if skip_allowed and raw_text.strip().upper() == "SKIP":
+                        print(f"Gemini judged headline too low-quality/trivial, skipping: '{live_headline}'")
+                        skipped_this_headline = True
+                        break
+
+                    # Pull out the IMG_QUERY line so it doesn't get posted as part
+                    # of the actual social media text.
+                    image_query = None
+                    post_lines = []
+                    for line in raw_text.splitlines():
+                        if line.strip().upper().startswith("IMG_QUERY:"):
+                            image_query = line.split(":", 1)[1].strip()
+                        else:
+                            post_lines.append(line)
+
+                    text = "\n".join(post_lines).strip()
+                    return text, category, live_headline, image_query
+                except Exception as e:
+                    print(f"Gemini API ({model_name}) Attempt {attempt+1} Failed: {e}")
+                    time.sleep(5 * (attempt + 1))
+            if skipped_this_headline:
+                break
+
+        if skipped_this_headline:
+            continue  # try fetching a different headline
+        else:
+            break  # generation failed for real (API errors) — don't loop forever
 
     return None, category, live_headline, None
 
@@ -175,6 +262,13 @@ def get_dynamic_unique_image_url(news_text, category, image_query=None):
     sig_rand = random.randint(100, 99999)
     return f"https://picsum.photos/seed/{sig_rand}/1080/1080"
 
+BANNER_THEMES = [
+    {"name": "Red Classic", "accent": (220, 38, 38, 255), "headline_bg": (15, 23, 42, 245), "highlight": "#FACC15"},
+    {"name": "Blue Steel", "accent": (37, 99, 235, 255), "headline_bg": (17, 24, 39, 245), "highlight": "#38BDF8"},
+    {"name": "Emerald Edge", "accent": (5, 150, 105, 255), "headline_bg": (12, 30, 26, 245), "highlight": "#34D399"},
+    {"name": "Amber Alert", "accent": (217, 119, 6, 255), "headline_bg": (30, 20, 10, 245), "highlight": "#FBBF24"},
+]
+
 def create_news_card_overlay(base_img_url, headline_text, category_badge):
     try:
         res = requests.get(base_img_url, timeout=12)
@@ -183,23 +277,29 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
 
         img = Image.open(BytesIO(res.content)).convert("RGBA").resize((1080, 1080))
 
+        theme = random.choice(BANNER_THEMES)
+        accent = theme["accent"]
+        headline_bg = theme["headline_bg"]
+        highlight = theme["highlight"]
+        print(f"Using banner theme: {theme['name']}")
+
         overlay = Image.new("RGBA", (1080, 1080), (0, 0, 0, 0))
         draw_ov = ImageDraw.Draw(overlay)
 
         # Top darken strip so logo/badge stay readable on any photo
         draw_ov.rectangle([(0, 0), (1080, 130)], fill=(0, 0, 0, 140))
 
-        # Red Accent Bar
-        draw_ov.rectangle([(0, 560), (1080, 570)], fill=(220, 38, 38, 255))
-        # Solid dark backdrop for headline block
-        draw_ov.rectangle([(0, 570), (1080, 1080)], fill=(15, 23, 42, 245))
+        # Accent Bar (color rotates with theme)
+        draw_ov.rectangle([(0, 560), (1080, 570)], fill=accent)
+        # Solid dark backdrop for headline block (color rotates with theme)
+        draw_ov.rectangle([(0, 570), (1080, 1080)], fill=headline_bg)
 
         img = Image.alpha_composite(img, overlay)
         draw = ImageDraw.Draw(img)
 
-        # Top Category Tag (RED BADGE) - top right
+        # Top Category Tag (BADGE) - top right
         badge_font = get_font(28, bold=True)
-        draw.rounded_rectangle([(740, 35), (1040, 95)], radius=8, fill=(220, 38, 38, 255))
+        draw.rounded_rectangle([(740, 35), (1040, 95)], radius=8, fill=accent)
         draw.text((760, 48), category_badge.upper(), fill="white", font=badge_font)
 
         # Brand Logo Top Left — pasted onto a solid white rounded backdrop
@@ -227,19 +327,19 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
         except Exception as e:
             print(f"Logo Overlay Error: {e}")
 
-        # BREAKING strip just above the accent bar
+        # BREAKING strip just above the accent bar (color rotates with theme)
         breaking_font = get_font(26, bold=True)
-        draw.rectangle([(0, 520), (260, 560)], fill=(220, 38, 38, 255))
+        draw.rectangle([(0, 520), (260, 560)], fill=accent)
         draw.text((15, 528), "🚨 BREAKING", fill="white", font=breaking_font)
 
-        # Headline Layout
+        # Headline Layout (highlight color rotates with theme)
         clean_headline = headline_text.split(" - ")[0]
         title_font = get_font(44, bold=True)
         wrapped_lines = textwrap.wrap(clean_headline, width=30)[:3]
 
         y_text = 610
         for idx, line in enumerate(wrapped_lines):
-            line_color = "#FACC15" if idx == 0 else "#FFFFFF"
+            line_color = highlight if idx == 0 else "#FFFFFF"
             draw.text((40, y_text), line, fill=line_color, font=title_font)
             y_text += 65
 
@@ -338,24 +438,4 @@ def send_direct_to_buffer(post_text, image_url):
         }}
         """
         post_res = requests.post(url, json={"query": mutation}, headers=headers)
-        print(f"Direct Post Result for {service} ({ch_id}): {post_res.text}")
-
-if __name__ == "__main__":
-    text, category, headline, image_query = generate_news_with_gemini()
-    if text and headline:
-        print(f"Image search query from Gemini: {image_query}")
-        base_img = get_dynamic_unique_image_url(text, category, image_query)
-        card_file = create_news_card_overlay(base_img, headline, category)
-
-        final_image_url = None
-        if card_file:
-            final_image_url = upload_image_to_freehost(card_file)
-
-        if not final_image_url:
-            final_image_url = base_img
-
-        print(f"Final Matching Card Image URL: {final_image_url}")
-        print(f"Post Text:\n{text}")
-        send_direct_to_buffer(text, final_image_url)
-    else:
-        print("Skipping execution: Live RSS news fetch or Gemini failed.")
+    
