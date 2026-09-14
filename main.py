@@ -14,8 +14,6 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 BUFFER_ACCESS_TOKEN = os.getenv("BUFFER_ACCESS_TOKEN")
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
 
-# Local paths (repo is private, so we read committed files instead of
-# downloading over HTTP from raw.githubusercontent.com).
 LOGO_PATH = "logo.png"
 FONT_BOLD_PATH = "fonts/Roboto-Bold.ttf"
 FONT_REGULAR_PATH = "fonts/Roboto-Regular.ttf"
@@ -37,7 +35,7 @@ def load_recent_headlines():
 def save_recent_headline(headline):
     history = load_recent_headlines()
     history.append(headline)
-    history = history[-HISTORY_MAX:]  # keep only the most recent N
+    history = history[-HISTORY_MAX:]
     try:
         with open(HISTORY_FILE, "w") as f:
             json.dump(history, f)
@@ -45,9 +43,6 @@ def save_recent_headline(headline):
         print(f"History save error: {e}")
 
 def is_duplicate_headline(new_headline, history):
-    """Treats a headline as a repeat if it's an exact match OR shares most of
-    its significant words with something posted recently — catches the same
-    story reappearing in Google News with slightly reworded wording."""
     new_words = set(w.lower() for w in new_headline.split() if len(w) > 3)
     if not new_words:
         return False
@@ -86,10 +81,6 @@ def fetch_live_google_news(topic_query):
     return None
 
 def fetch_top_headlines(edition="india"):
-    """Pulls Google News' actual front-page 'Top Stories' feed instead of a
-    keyword search — this is what genuinely trending/major stories (like a
-    BRICS summit, budget, election result) show up in, since keyword search
-    can easily miss them."""
     if edition == "world":
         rss_url = "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en"
     else:
@@ -97,8 +88,6 @@ def fetch_top_headlines(edition="india"):
     try:
         feed = feedparser.parse(rss_url)
         if feed.entries and len(feed.entries) > 0:
-            # Weight toward the top few (most prominent) stories, but keep
-            # some variety instead of always picking #1.
             selected = random.choice(feed.entries[:6])
             return selected.title
     except Exception as e:
@@ -110,7 +99,6 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
         print("Error: GEMINI_API_KEY Missing!")
         return None, "india", None, None
 
-    # Topics aligned with: Global, India, Economic, Geopolitical, Tech, Stock Market
     topics = [
         ("India breaking news live updates", "india"),
         ("global world breaking news today", "global"),
@@ -121,9 +109,7 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
     ]
 
     def fetch_one_headline():
-        """Fetch a single candidate headline + category, using the same
-        50/50 top-headlines vs category-search mix as before."""
-        use_top_headlines = random.random() < 0.7  # prioritize genuinely trending stories
+        use_top_headlines = random.random() < 0.7
         if use_top_headlines:
             edition = random.choice(["india", "world"])
             cat = "india" if edition == "india" else "global"
@@ -156,7 +142,7 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
             live_headline = custom_headline
             category = custom_category if custom_category else "technology"
             print(f"Using CUSTOM headline (manual trigger): '{live_headline}' [category: {category}]")
-            skip_allowed = False  # never skip an explicit manual post
+            skip_allowed = False
         else:
             live_headline, category = fetch_one_headline()
             if not live_headline:
@@ -168,10 +154,8 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
             is_last_attempt = headline_attempt >= HEADLINE_ATTEMPTS - 1
             if is_duplicate_headline(live_headline, recent_history) and not is_last_attempt:
                 print(f"DUPLICATE: '{live_headline}' looks like something posted recently — trying a different headline.")
-                continue  # skip straight to the next headline_attempt
+                continue
 
-            # On the last allowed attempt, don't let it skip again — we must
-            # post *something* rather than never posting at all.
             skip_allowed = headline_attempt < HEADLINE_ATTEMPTS - 1
 
         skip_instruction = (
@@ -220,7 +204,9 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
             "3. ACCURACY IS CRITICAL: only use facts present in the headline itself. Never "
             "invent, guess, or embellish numbers, causes, or details not given.\n"
             "4. ABSOLUTELY DO NOT ADD ANY SYSTEM CODE TAGS AT THE END.\n"
-            "5. Total Length of the post itself (excluding the IMG_QUERY line): Under 260 characters."
+            "5. Total Length of the post itself, INCLUDING the hashtags line (excluding "
+            "only the IMG_QUERY line): aim for around 270 characters, and never exceed "
+            "275. This is close to a hard platform limit of 280 — count carefully."
         )
 
         skipped_this_headline = False
@@ -240,8 +226,6 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
                         skipped_this_headline = True
                         break
 
-                    # Pull out the IMG_QUERY line so it doesn't get posted as part
-                    # of the actual social media text.
                     image_query = None
                     post_lines = []
                     for line in raw_text.splitlines():
@@ -251,6 +235,22 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
                             post_lines.append(line)
 
                     text = "\n".join(post_lines).strip()
+
+                    MAX_LEN = 280
+                    if len(text) > MAX_LEN:
+                        print(f"WARNING: Generated post was {len(text)} chars — trimming to fit X's 280 limit.")
+                        lines = text.split("\n")
+                        hashtag_line = ""
+                        if lines and lines[-1].strip().startswith("#"):
+                            hashtag_line = lines.pop()
+                        body = "\n".join(lines).strip()
+                        budget = MAX_LEN - (len(hashtag_line) + 1 if hashtag_line else 0)
+                        if len(body) > budget:
+                            body = body[:max(budget - 1, 0)].rstrip() + "…"
+                        text = (body + ("\n" + hashtag_line if hashtag_line else "")).strip()
+                        if len(text) > MAX_LEN:
+                            text = text[:MAX_LEN-1].rstrip() + "…"
+
                     if not custom_headline:
                         save_recent_headline(live_headline)
                     return text, category, live_headline, image_query
@@ -261,9 +261,9 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
                 break
 
         if skipped_this_headline:
-            continue  # try fetching a different headline
+            continue
         else:
-            break  # generation failed for real (API errors) — don't loop forever
+            break
 
     return None, category, live_headline, None
 
@@ -292,13 +292,12 @@ def _search_pexels(keyword):
     return None
 
 def get_dynamic_unique_image_url(news_text, category, image_query=None):
-    # Build a list of search terms to try, best (most specific) first.
     candidates = []
     if image_query:
         candidates.append(image_query)
         words = image_query.split()
         if len(words) > 2:
-            candidates.append(" ".join(words[:2]))  # simplified version
+            candidates.append(" ".join(words[:2]))
 
     candidates.extend(CATEGORY_FALLBACK_IMAGES.get(category, ["news update"]))
 
@@ -315,19 +314,13 @@ def get_dynamic_unique_image_url(news_text, category, image_query=None):
     return f"https://picsum.photos/seed/{sig_rand}/1080/1080"
 
 def _recolor_logo_white(logo):
-    """Returns a white-silhouette version of the logo (keeps alpha/shape,
-    replaces RGB with white) so a dark logo like ours stays visible when
-    placed over a dark photo caption bar."""
     logo = logo.convert("RGBA")
     r, g, b, a = logo.split()
     white = Image.new("L", logo.size, 255)
     return Image.merge("RGBA", (white, white, white, a))
 
-# Clean, wire-service-style layout variants (Reuters/Economist-like) — all
-# muted/professional, no loud colored badges. Rotating between these keeps
-# posts from looking identical without breaking the minimal aesthetic.
 CARD_LAYOUTS = ["bottom", "top", "bottom_accent"]
-ACCENT_LINE_COLORS = [(30, 58, 95), (91, 33, 33), (27, 67, 50), (55, 55, 60)]  # muted navy/maroon/forest/charcoal
+ACCENT_LINE_COLORS = [(30, 58, 95), (91, 33, 33), (27, 67, 50), (55, 55, 60)]
 
 def create_news_card_overlay(base_img_url, headline_text, category_badge):
     try:
@@ -359,7 +352,6 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
             print(f"WARNING: Logo not found at {LOGO_PATH} — check the file is committed to the repo root.")
 
         if layout == "top":
-            # Caption bar at the TOP instead of the bottom.
             bar_h = 260
             overlay = Image.new("RGBA", (1080, 1080), (0, 0, 0, 0))
             odraw = ImageDraw.Draw(overlay)
@@ -377,11 +369,9 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
             for line in wrapped_lines:
                 draw.text((40, y_text), line, fill="#FFFFFF", font=title_font)
                 y_text += 44
-            draw.text((40, y_text + 6), f"worldscopex.com · {category_badge.title()}", fill="#9CA3AF", font=src_font)
+            draw.text((40, y_text + 6), f"WorldScopeX · {category_badge.title()}", fill="#9CA3AF", font=src_font)
 
         else:
-            # Bottom caption bar (default), optionally with a thin muted
-            # accent line at the very top for subtle variety.
             bar_h = 260
             overlay = Image.new("RGBA", (1080, 1080), (0, 0, 0, 0))
             odraw = ImageDraw.Draw(overlay)
@@ -403,7 +393,7 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
             for line in wrapped_lines:
                 draw.text((40, y_text), line, fill="#FFFFFF", font=title_font)
                 y_text += 44
-            draw.text((40, y_text + 6), f"worldscopex.com · {category_badge.title()}", fill="#9CA3AF", font=src_font)
+            draw.text((40, y_text + 6), f"WorldScopeX · {category_badge.title()}", fill="#9CA3AF", font=src_font)
 
         output_path = "final_card.png"
         img.convert("RGB").save(output_path)
