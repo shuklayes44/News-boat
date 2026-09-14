@@ -195,12 +195,19 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
             "   - Line 5: Short engagement question for the audience.\n"
             "   - Line 6: 4-5 dynamic trending hashtags matching THIS exact news.\n"
             "   - Line 7: A line starting exactly with 'IMG_QUERY:' followed by a short "
-            "1-3 word English stock-photo search phrase describing the single most "
+            "1-4 word English stock-photo search phrase describing the single most "
             "visually common, easy-to-find subject of this news (e.g. 'stock market', "
             "'smartphone', 'parliament building', 'cricket stadium', 'world map'). "
             "Keep it SIMPLE and generic — prefer a widely-photographed everyday subject "
             "over a specific/unusual combination of ideas, since it must match a stock "
-            "photo library search.\n"
+            "photo library search. CRITICAL: if this news is specifically about India "
+            "(an Indian state, city, election, institution, or company), you MUST include "
+            "the word 'Indian' or 'India' in the phrase (e.g. 'Indian election voting', "
+            "'Indian parliament', 'Indian stock market') — otherwise a generic word like "
+            "'vote' or 'flag' can pull an unrelated country's imagery (e.g. a US flag on "
+            "an Indian state election story), which looks like a factual error. Never "
+            "name a country in the query that isn't the one this story is actually "
+            "about.\n"
             "3. ACCURACY IS CRITICAL: only use facts present in the headline itself. Never "
             "invent, guess, or embellish numbers, causes, or details not given.\n"
             "4. ABSOLUTELY DO NOT ADD ANY SYSTEM CODE TAGS AT THE END.\n"
@@ -294,6 +301,9 @@ def _search_pexels(keyword):
 def get_dynamic_unique_image_url(news_text, category, image_query=None):
     candidates = []
     if image_query:
+        query_lower = image_query.lower()
+        if category == "india" and "india" not in query_lower and "indian" not in query_lower:
+            candidates.append(f"Indian {image_query}")
         candidates.append(image_query)
         words = image_query.split()
         if len(words) > 2:
