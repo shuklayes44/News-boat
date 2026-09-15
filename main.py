@@ -215,8 +215,8 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
             "invent, guess, or embellish numbers, causes, or details not given.\n"
             "4. ABSOLUTELY DO NOT ADD ANY SYSTEM CODE TAGS AT THE END.\n"
             "5. Total Length of the post itself, INCLUDING the hashtags line (excluding "
-            "only the IMG_QUERY line): aim for around 270 characters, and never exceed "
-            "275. This is close to a hard platform limit of 280 — count carefully."
+            "only the IMG_QUERY line): aim for around 265 characters, and never exceed "
+            "270. This is close to a hard platform limit of 280 — count carefully."
         )
 
         skipped_this_headline = False
