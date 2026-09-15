@@ -133,7 +133,10 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
         return headline, cat
 
     client = genai.Client(api_key=GEMINI_API_KEY)
-    models_to_try = ['gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-flash-latest']
+    # gemini-3.6-flash's free tier has a very low daily cap (20/day), which
+    # our posting frequency blows through fast — put the less-constrained
+    # models first so most runs succeed without wasting time on 429 retries.
+    models_to_try = ['gemini-3.5-flash-lite', 'gemini-flash-latest', 'gemini-3.6-flash']
 
     HEADLINE_ATTEMPTS = 1 if custom_headline else 3
 
@@ -220,7 +223,7 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
 
         for model_name in models_to_try:
             print(f"Attempting content generation using model: {model_name}...")
-            for attempt in range(4):
+            for attempt in range(2):
                 try:
                     response = client.models.generate_content(
                         model=model_name,
@@ -412,6 +415,17 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
         print(f"News Card Overlay Creation Error: {e}")
         return None
 
+def _verify_image_url(url):
+    try:
+        res = requests.get(url, timeout=10, stream=True)
+        content_type = res.headers.get("Content-Type", "")
+        if res.status_code == 200 and content_type.startswith("image/"):
+            return True
+        print(f"Image URL verification failed for {url} (status={res.status_code}, content-type={content_type})")
+    except Exception as e:
+        print(f"Image URL verification error for {url}: {e}")
+    return False
+
 def upload_image_to_freehost(image_path):
     try:
         url = "https://freeimage.host/api/1/upload"
@@ -428,8 +442,8 @@ def upload_image_to_freehost(image_path):
         if res.status_code == 200:
             data = res.json()
             direct_url = data.get("image", {}).get("url")
-            if direct_url:
-                print(f"FreeImage Host Upload SUCCESS: {direct_url}")
+            if direct_url and _verify_image_url(direct_url):
+                print(f"FreeImage Host Upload SUCCESS (verified): {direct_url}")
                 return direct_url
     except Exception as e:
         print(f"FreeImage Host Error: {e}")
@@ -443,11 +457,27 @@ def upload_image_to_freehost(image_path):
                 file_url = res.json().get("data", {}).get("url")
                 if file_url:
                     direct_url = file_url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
-                    print(f"TmpFiles Upload SUCCESS: {direct_url}")
-                    return direct_url
+                    if _verify_image_url(direct_url):
+                        print(f"TmpFiles Upload SUCCESS (verified): {direct_url}")
+                        return direct_url
     except Exception as e:
         print(f"TmpFiles Upload Error: {e}")
 
+    try:
+        url = "https://catbox.moe/user/api.php"
+        with open(image_path, "rb") as file:
+            files = {"fileToUpload": file}
+            data = {"reqtype": "fileupload"}
+            res = requests.post(url, files=files, data=data, timeout=20)
+            if res.status_code == 200 and res.text.strip().startswith("http"):
+                direct_url = res.text.strip()
+                if _verify_image_url(direct_url):
+                    print(f"Catbox Upload SUCCESS (verified): {direct_url}")
+                    return direct_url
+    except Exception as e:
+        print(f"Catbox Upload Error: {e}")
+
+    print("All image hosts failed verification — will fall back to the raw photo URL instead of the branded card.")
     return None
 
 def send_direct_to_buffer(post_text, image_url):
