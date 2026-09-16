@@ -312,7 +312,9 @@ def get_dynamic_unique_image_url(news_text, category, image_query=None):
     candidates = []
     if image_query:
         query_lower = image_query.lower()
-        if category == "india" and "india" not in query_lower and "indian" not in query_lower:
+        text_lower = (news_text or "").lower()
+        mentions_india = "india" in text_lower or "indian" in text_lower
+        if category == "india" and mentions_india and "india" not in query_lower and "indian" not in query_lower:
             candidates.append(f"Indian {image_query}")
         candidates.append(image_query)
         words = image_query.split()
