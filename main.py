@@ -133,9 +133,6 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
         return headline, cat
 
     client = genai.Client(api_key=GEMINI_API_KEY)
-    # gemini-3.6-flash's free tier has a very low daily cap (20/day), which
-    # our posting frequency blows through fast — put the less-constrained
-    # models first so most runs succeed without wasting time on 429 retries.
     models_to_try = ['gemini-3.5-flash-lite', 'gemini-flash-latest', 'gemini-3.6-flash']
 
     HEADLINE_ATTEMPTS = 1 if custom_headline else 3
@@ -215,8 +212,11 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
             "invent, guess, or embellish numbers, causes, or details not given.\n"
             "4. ABSOLUTELY DO NOT ADD ANY SYSTEM CODE TAGS AT THE END.\n"
             "5. Total Length of the post itself, INCLUDING the hashtags line (excluding "
-            "only the IMG_QUERY line): aim for around 270 characters, and never exceed "
-            "275. This is close to a hard platform limit of 280 — count carefully."
+            "only the IMG_QUERY line): aim for around 220 characters, and never exceed "
+            "240. Note that emoji count as roughly DOUBLE weight on X/Twitter's real "
+            "character limit, so keep emoji use light (1-2 total) and leave real margin — "
+            "this is close to a hard platform limit of 280 counted X's way, not a simple "
+            "character count."
         )
 
         skipped_this_headline = False
@@ -246,20 +246,27 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
 
                     text = "\n".join(post_lines).strip()
 
+                    def x_weighted_length(s):
+                        return sum(2 if ord(ch) > 0x2FF else 1 for ch in s)
+
                     MAX_LEN = 280
-                    if len(text) > MAX_LEN:
-                        print(f"WARNING: Generated post was {len(text)} chars — trimming to fit X's 280 limit.")
+                    if x_weighted_length(text) > MAX_LEN:
+                        print(f"WARNING: Generated post was {x_weighted_length(text)} X-weighted chars — trimming to fit X's 280 limit.")
                         lines = text.split("\n")
                         hashtag_line = ""
                         if lines and lines[-1].strip().startswith("#"):
                             hashtag_line = lines.pop()
                         body = "\n".join(lines).strip()
-                        budget = MAX_LEN - (len(hashtag_line) + 1 if hashtag_line else 0)
-                        if len(body) > budget:
-                            body = body[:max(budget - 1, 0)].rstrip() + "…"
+                        hashtag_weight = x_weighted_length(hashtag_line) + 1 if hashtag_line else 0
+
+                        while x_weighted_length(body) + 1 + hashtag_weight > MAX_LEN and len(body) > 0:
+                            body = body[:-1]
+                        body = body.rstrip() + "…"
+
                         text = (body + ("\n" + hashtag_line if hashtag_line else "")).strip()
-                        if len(text) > MAX_LEN:
-                            text = text[:MAX_LEN-1].rstrip() + "…"
+
+                        if x_weighted_length(text) > MAX_LEN:
+                            text = body
 
                     if not custom_headline:
                         save_recent_headline(live_headline)
