@@ -13,6 +13,7 @@ from io import BytesIO
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 BUFFER_ACCESS_TOKEN = os.getenv("BUFFER_ACCESS_TOKEN")
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
+FREEIMAGE_API_KEY = os.getenv("FREEIMAGE_API_KEY")
 
 LOGO_PATH = "logo.png"
 FONT_BOLD_PATH = "fonts/Roboto-Bold.ttf"
@@ -193,8 +194,7 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
             "genuinely doesn't apply, give one line of background context instead so a "
             "reader unfamiliar with the story understands its significance.\n"
             "   - Line 5: Short engagement question for the audience.\n"
-            "   - Line 6: 4-5 dynamic trending hashtags matching THIS exact news.\n"
-            "   - Line 7: A line starting exactly with 'IMG_QUERY:' followed by a short "
+            "   - Line 6: A line starting exactly with 'IMG_QUERY:' followed by a short "
             "1-4 word English stock-photo search phrase describing the single most "
             "visually common, easy-to-find subject of this news (e.g. 'stock market', "
             "'smartphone', 'parliament building', 'cricket stadium', 'world map'). "
@@ -210,13 +210,13 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
             "about.\n"
             "3. ACCURACY IS CRITICAL: only use facts present in the headline itself. Never "
             "invent, guess, or embellish numbers, causes, or details not given.\n"
-            "4. ABSOLUTELY DO NOT ADD ANY SYSTEM CODE TAGS AT THE END.\n"
-            "5. Total Length of the post itself, INCLUDING the hashtags line (excluding "
-            "only the IMG_QUERY line): aim for around 220 characters, and never exceed "
-            "240. Note that emoji count as roughly DOUBLE weight on X/Twitter's real "
-            "character limit, so keep emoji use light (1-2 total) and leave real margin — "
-            "this is close to a hard platform limit of 280 counted X's way, not a simple "
-            "character count."
+            "4. ABSOLUTELY DO NOT ADD ANY SYSTEM CODE TAGS AT THE END. Do NOT include any "
+            "hashtags anywhere in the post.\n"
+            "5. Total Length of the post itself (excluding only the IMG_QUERY line): "
+            "aim for around 200 characters, and never exceed 240. Note that emoji count "
+            "as roughly DOUBLE weight on X/Twitter's real character limit, so keep emoji "
+            "use light (1-2 total) and leave real margin — this is close to a hard "
+            "platform limit of 280 counted X's way, not a simple character count."
         )
 
         skipped_this_headline = False
@@ -241,6 +241,8 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
                     for line in raw_text.splitlines():
                         if line.strip().upper().startswith("IMG_QUERY:"):
                             image_query = line.split(":", 1)[1].strip()
+                        elif line.strip().startswith("#"):
+                            continue  # safety-net: drop any hashtag line even if Gemini adds one by mistake
                         else:
                             post_lines.append(line)
 
@@ -252,21 +254,9 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
                     MAX_LEN = 280
                     if x_weighted_length(text) > MAX_LEN:
                         print(f"WARNING: Generated post was {x_weighted_length(text)} X-weighted chars — trimming to fit X's 280 limit.")
-                        lines = text.split("\n")
-                        hashtag_line = ""
-                        if lines and lines[-1].strip().startswith("#"):
-                            hashtag_line = lines.pop()
-                        body = "\n".join(lines).strip()
-                        hashtag_weight = x_weighted_length(hashtag_line) + 1 if hashtag_line else 0
-
-                        while x_weighted_length(body) + 1 + hashtag_weight > MAX_LEN and len(body) > 0:
-                            body = body[:-1]
-                        body = body.rstrip() + "…"
-
-                        text = (body + ("\n" + hashtag_line if hashtag_line else "")).strip()
-
-                        if x_weighted_length(text) > MAX_LEN:
-                            text = body
+                        while x_weighted_length(text) > MAX_LEN and len(text) > 0:
+                            text = text[:-1]
+                        text = text.rstrip() + "…"
 
                     if not custom_headline:
                         save_recent_headline(live_headline)
@@ -442,7 +432,7 @@ def upload_image_to_freehost(image_path):
             encoded_string = base64.b64encode(file.read()).decode('utf-8')
 
         payload = {
-            "key": "6d207e02198a847aa98d0a2a901485a5",
+            "key": FREEIMAGE_API_KEY,
             "action": "upload",
             "source": encoded_string,
             "format": "json"
