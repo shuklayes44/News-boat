@@ -781,6 +781,6 @@ if __name__ == "__main__":
         print(f"Post Text:\n{final_post_text}")
         # Posting the link only (no attached image) so platforms auto-unfurl
         # a preview card from the website page instead.
-        send_direct_to_buffer(final_post_text, image_url=None)
+        send_direct_to_buffer(final_post_text, image_url=final_image_url)
     else:
         print("Skipping execution: Live RSS news fetch or Gemini failed.")
