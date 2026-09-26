@@ -212,11 +212,14 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
             "invent, guess, or embellish numbers, causes, or details not given.\n"
             "4. ABSOLUTELY DO NOT ADD ANY SYSTEM CODE TAGS AT THE END. Do NOT include any "
             "hashtags anywhere in the post.\n"
-            "5. Total Length of the post itself (excluding only the IMG_QUERY line): "
+            "5. EMOJI LIMIT: Use EXACTLY ONE emoji in the entire post, only in the "
+            "opening Line 1 hook. Do NOT use any emoji anywhere else (not in the "
+            "summary, why-it-matters line, or engagement question).\n"
+            "6. Total Length of the post itself (excluding only the IMG_QUERY line): "
             "aim for around 200 characters, and never exceed 240. Note that emoji count "
-            "as roughly DOUBLE weight on X/Twitter's real character limit, so keep emoji "
-            "use light (1-2 total) and leave real margin — this is close to a hard "
-            "platform limit of 280 counted X's way, not a simple character count."
+            "as roughly DOUBLE weight on X/Twitter's real character limit, so leave real "
+            "margin — this is close to a hard platform limit of 280 counted X's way, "
+            "not a simple character count."
         )
 
         skipped_this_headline = False
@@ -254,7 +257,7 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
                     MAX_LEN = 280
                     if x_weighted_length(text) > MAX_LEN:
                         print(f"WARNING: Generated post was {x_weighted_length(text)} X-weighted chars — trimming to fit X's 280 limit.")
-                        while x_weighted_length(text) > MAX_LEN and len(text) > 0:
+                        while x_weighted_length(text) + 2 > MAX_LEN and len(text) > 0:
                             text = text[:-1]
                         text = text.rstrip() + "…"
 
@@ -426,55 +429,67 @@ def _verify_image_url(url):
     return False
 
 def upload_image_to_freehost(image_path):
-    try:
-        url = "https://freeimage.host/api/1/upload"
-        with open(image_path, "rb") as file:
-            encoded_string = base64.b64encode(file.read()).decode('utf-8')
+    for attempt in range(2):
+        try:
+            url = "https://freeimage.host/api/1/upload"
+            with open(image_path, "rb") as file:
+                encoded_string = base64.b64encode(file.read()).decode('utf-8')
 
-        payload = {
-            "key": FREEIMAGE_API_KEY,
-            "action": "upload",
-            "source": encoded_string,
-            "format": "json"
-        }
-        res = requests.post(url, data=payload, timeout=20)
-        if res.status_code == 200:
-            data = res.json()
-            direct_url = data.get("image", {}).get("url")
-            if direct_url and _verify_image_url(direct_url):
-                print(f"FreeImage Host Upload SUCCESS (verified): {direct_url}")
-                return direct_url
-    except Exception as e:
-        print(f"FreeImage Host Error: {e}")
-
-    try:
-        url = "https://tmpfiles.org/api/v1/upload"
-        with open(image_path, "rb") as file:
-            files = {"file": file}
-            res = requests.post(url, files=files, timeout=20)
+            payload = {
+                "key": FREEIMAGE_API_KEY,
+                "action": "upload",
+                "source": encoded_string,
+                "format": "json"
+            }
+            res = requests.post(url, data=payload, timeout=30)
             if res.status_code == 200:
-                file_url = res.json().get("data", {}).get("url")
-                if file_url:
-                    direct_url = file_url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
-                    if _verify_image_url(direct_url):
-                        print(f"TmpFiles Upload SUCCESS (verified): {direct_url}")
-                        return direct_url
-    except Exception as e:
-        print(f"TmpFiles Upload Error: {e}")
-
-    try:
-        url = "https://catbox.moe/user/api.php"
-        with open(image_path, "rb") as file:
-            files = {"fileToUpload": file}
-            data = {"reqtype": "fileupload"}
-            res = requests.post(url, files=files, data=data, timeout=20)
-            if res.status_code == 200 and res.text.strip().startswith("http"):
-                direct_url = res.text.strip()
-                if _verify_image_url(direct_url):
-                    print(f"Catbox Upload SUCCESS (verified): {direct_url}")
+                data = res.json()
+                direct_url = data.get("image", {}).get("url")
+                if direct_url and _verify_image_url(direct_url):
+                    print(f"FreeImage Host Upload SUCCESS (verified): {direct_url}")
                     return direct_url
-    except Exception as e:
-        print(f"Catbox Upload Error: {e}")
+            else:
+                print(f"FreeImage Host bad status: {res.status_code} — {res.text[:200]}")
+        except Exception as e:
+            print(f"FreeImage Host Error (attempt {attempt+1}): {e}")
+            time.sleep(3)
+
+    for attempt in range(2):
+        try:
+            url = "https://tmpfiles.org/api/v1/upload"
+            with open(image_path, "rb") as file:
+                files = {"file": file}
+                res = requests.post(url, files=files, timeout=30)
+                if res.status_code == 200:
+                    file_url = res.json().get("data", {}).get("url")
+                    if file_url:
+                        direct_url = file_url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
+                        if _verify_image_url(direct_url):
+                            print(f"TmpFiles Upload SUCCESS (verified): {direct_url}")
+                            return direct_url
+                else:
+                    print(f"TmpFiles bad status: {res.status_code} — {res.text[:200]}")
+        except Exception as e:
+            print(f"TmpFiles Upload Error (attempt {attempt+1}): {e}")
+            time.sleep(3)
+
+    for attempt in range(2):
+        try:
+            url = "https://catbox.moe/user/api.php"
+            with open(image_path, "rb") as file:
+                files = {"fileToUpload": file}
+                data = {"reqtype": "fileupload"}
+                res = requests.post(url, files=files, data=data, timeout=30)
+                if res.status_code == 200 and res.text.strip().startswith("http"):
+                    direct_url = res.text.strip()
+                    if _verify_image_url(direct_url):
+                        print(f"Catbox Upload SUCCESS (verified): {direct_url}")
+                        return direct_url
+                else:
+                    print(f"Catbox bad status/response: {res.status_code} — {res.text[:200]}")
+        except Exception as e:
+            print(f"Catbox Upload Error (attempt {attempt+1}): {e}")
+            time.sleep(3)
 
     print("All image hosts failed verification — will fall back to the raw photo URL instead of the branded card.")
     return None
