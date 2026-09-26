@@ -1,11 +1,15 @@
 import os
+import re
 import time
-import requests
-import random
-import urllib.parse
-import feedparser
-import textwrap
+import json
 import base64
+import random
+import textwrap
+import urllib.parse
+import unicodedata
+import feedparser
+import requests
+from datetime import datetime
 from google import genai
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
@@ -13,16 +17,28 @@ from io import BytesIO
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 BUFFER_ACCESS_TOKEN = os.getenv("BUFFER_ACCESS_TOKEN")
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
-FREEIMAGE_API_KEY = os.getenv("FREEIMAGE_API_KEY")
+WEBSITE_REPO_TOKEN = os.getenv("WEBSITE_REPO_TOKEN")
 
 LOGO_PATH = "logo.png"
 FONT_BOLD_PATH = "fonts/Roboto-Bold.ttf"
 FONT_REGULAR_PATH = "fonts/Roboto-Regular.ttf"
-
-import json
+WEBSITE_DATA_PATH = "src/data/articles.ts"
+# NOTE: verify this against an actual published article URL on the site and
+# fix this one line if the real routing pattern is different.
+ARTICLE_URL_PATTERN = "https://worldscopex-hub.worldscopex.workers.dev/article/{slug}"
 
 HISTORY_FILE = "posted_history.json"
 HISTORY_MAX = 40
+
+CATEGORY_MAP = {
+    "india": "india",
+    "global": "world",
+    "geopolitics": "geopolitics",
+    "technology": "technology",
+    "stock market": "economy",
+    "economic": "economy",
+}
+
 
 def load_recent_headlines():
     if os.path.exists(HISTORY_FILE):
@@ -33,6 +49,7 @@ def load_recent_headlines():
             print(f"History load error: {e}")
     return []
 
+
 def save_recent_headline(headline):
     history = load_recent_headlines()
     history.append(headline)
@@ -42,6 +59,7 @@ def save_recent_headline(headline):
             json.dump(history, f)
     except Exception as e:
         print(f"History save error: {e}")
+
 
 def is_duplicate_headline(new_headline, history):
     new_words = set(w.lower() for w in new_headline.split() if len(w) > 3)
@@ -58,6 +76,7 @@ def is_duplicate_headline(new_headline, history):
             return True
     return False
 
+
 def get_font(font_size=42, bold=True):
     font_path = FONT_BOLD_PATH if bold else FONT_REGULAR_PATH
     if os.path.exists(font_path):
@@ -66,8 +85,43 @@ def get_font(font_size=42, bold=True):
         except Exception as e:
             print(f"Font load error ({font_path}): {e}")
     else:
-        print(f"WARNING: Font file not found at {font_path} — text will render tiny using default font. Add the .ttf file to your repo.")
+        print(f"WARNING: Font file not found at {font_path} — text will render tiny using default font.")
     return ImageFont.load_default()
+
+
+def _clean_rss_summary(html):
+    if not html:
+        return ""
+    text = re.sub("<[^<]+?>", " ", html)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:400]
+
+
+def fetch_full_article_text(url, max_chars=4000):
+    """Fetch the original publisher's article and extract its main text, so
+    Gemini has real facts to work with instead of just a headline."""
+    if not url:
+        return None
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; WorldScopeXBot/1.0)"}
+        res = requests.get(url, headers=headers, timeout=12, allow_redirects=True)
+        if res.status_code != 200:
+            print(f"Full-article fetch bad status ({res.status_code}) for {url}")
+            return None
+        try:
+            import trafilatura
+            extracted = trafilatura.extract(res.text, include_comments=False, include_tables=False)
+        except Exception as e:
+            print(f"trafilatura extraction error: {e}")
+            extracted = None
+        if not extracted or len(extracted.strip()) < 200:
+            print("Full-article extraction too short/empty — will fall back to RSS snippet.")
+            return None
+        return extracted.strip()[:max_chars]
+    except Exception as e:
+        print(f"Full-article fetch error for {url}: {e}")
+        return None
+
 
 def fetch_live_google_news(topic_query):
     formatted_query = topic_query.replace(' ', '+')
@@ -76,10 +130,13 @@ def fetch_live_google_news(topic_query):
         feed = feedparser.parse(rss_url)
         if feed.entries and len(feed.entries) > 0:
             selected = random.choice(feed.entries[:10])
-            return selected.title
+            summary = _clean_rss_summary(selected.get("summary", ""))
+            link = selected.get("link", "")
+            return selected.title, summary, link
     except Exception as e:
         print(f"Google News RSS Error: {e}")
-    return None
+    return None, None, None
+
 
 def fetch_top_headlines(edition="india"):
     if edition == "world":
@@ -90,15 +147,18 @@ def fetch_top_headlines(edition="india"):
         feed = feedparser.parse(rss_url)
         if feed.entries and len(feed.entries) > 0:
             selected = random.choice(feed.entries[:6])
-            return selected.title
+            summary = _clean_rss_summary(selected.get("summary", ""))
+            link = selected.get("link", "")
+            return selected.title, summary, link
     except Exception as e:
         print(f"Google News Top Headlines RSS Error: {e}")
-    return None
+    return None, None, None
+
 
 def generate_news_with_gemini(custom_headline=None, custom_category=None):
     if not GEMINI_API_KEY:
         print("Error: GEMINI_API_KEY Missing!")
-        return None, "india", None, None
+        return None, "india", None, None, None
 
     topics = [
         ("India breaking news live updates", "india"),
@@ -115,23 +175,23 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
             edition = random.choice(["india", "world"])
             cat = "india" if edition == "india" else "global"
             print(f"Fetching Google News TOP HEADLINES ({edition} edition)...")
-            headline = fetch_top_headlines(edition)
+            headline, summary, link = fetch_top_headlines(edition)
         else:
             selected_query, cat = random.choice(topics)
             print(f"Fetching Live Breaking News for query: '{selected_query}'...")
-            headline = fetch_live_google_news(selected_query)
+            headline, summary, link = fetch_live_google_news(selected_query)
 
         if not headline:
             print("Primary query skipped, checking fallback news topics...")
-            headline = fetch_top_headlines("india")
+            headline, summary, link = fetch_top_headlines("india")
             cat = "india"
             if not headline:
                 for query, c in topics:
-                    headline = fetch_live_google_news(query)
+                    headline, summary, link = fetch_live_google_news(query)
                     if headline:
                         cat = c
                         break
-        return headline, cat
+        return headline, cat, summary, link
 
     client = genai.Client(api_key=GEMINI_API_KEY)
     models_to_try = ['gemini-3.5-flash-lite', 'gemini-flash-latest', 'gemini-3.6-flash']
@@ -139,16 +199,17 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
     HEADLINE_ATTEMPTS = 1 if custom_headline else 3
 
     for headline_attempt in range(HEADLINE_ATTEMPTS):
+        rss_summary, rss_link = "", ""
         if custom_headline:
             live_headline = custom_headline
             category = custom_category if custom_category else "technology"
             print(f"Using CUSTOM headline (manual trigger): '{live_headline}' [category: {category}]")
             skip_allowed = False
         else:
-            live_headline, category = fetch_one_headline()
+            live_headline, category, rss_summary, rss_link = fetch_one_headline()
             if not live_headline:
                 print("Error: Could not fetch real live news RSS feed. Aborting execution.")
-                return None, category, None, None
+                return None, category, None, None, None
             print(f"SUCCESS: Fresh Live Headline Fetched -> {live_headline}")
 
             recent_history = load_recent_headlines()
@@ -158,6 +219,11 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
                 continue
 
             skip_allowed = headline_attempt < HEADLINE_ATTEMPTS - 1
+
+        full_article_text = None
+        if not custom_headline and rss_link:
+            print("Attempting to fetch full original article for factual context...")
+            full_article_text = fetch_full_article_text(rss_link)
 
         skip_instruction = (
             "\n0. IMPORTANCE FILTER: This bot only posts genuinely significant, "
@@ -170,56 +236,71 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
             if skip_allowed else ""
         )
 
+        if full_article_text:
+            context_line = (
+                "\nFULL ARTICLE CONTEXT (this is the actual source article — use it "
+                "extensively for real facts, figures, dates and specifics in both the "
+                "social post and the website article):\n"
+                f"'''{full_article_text}'''\n"
+            )
+        elif rss_summary:
+            context_line = f"\nCONTEXT SNIPPET (brief, from the news feed): '{rss_summary}'\n"
+        else:
+            context_line = "\nCONTEXT SNIPPET: none available — rely only on the headline.\n"
+
         prompt = (
             f"STRICT INSTRUCTION: Write a high-impact, factual breaking news post based ONLY on this live headline:\n"
             f"HEADLINE: '{live_headline}'\n"
+            f"{context_line}"
             f"{skip_instruction}\n"
             "STRICT FORMATTING RULES:\n"
             "1. Language: Professional English for a global audience, with special emphasis "
             "on relevance to Indian readers — where the headline supports it, note the "
             "impact on India (markets, policy, jobs, prices) without inventing anything not "
-            "in the headline.\n"
-            "2. Structure:\n"
+            "in the headline or context snippet.\n"
+            "2. Structure of the SOCIAL POST (this part only, lines 1-6):\n"
             "   - Line 1: An attention-grabbing opener with an emoji. Vary the style each "
             "time — sometimes a bold CAPS hook ('🚨 MARKETS CRASH!'), sometimes a short "
             "question ('🤔 Is this the end of...?'), sometimes a striking stat "
             "('📉 ₹8 lakh crore wiped out in a day'). Do not use the exact same opening "
             "phrase every time.\n"
-            "   - Line 2-3: Core factual summary. Where the headline supports it, include "
-            "ONE specific, concrete number or statistic (e.g. exact figures, percentages, "
-            "amounts) rather than vague words like 'a lot' or 'significant'.\n"
+            "   - Line 2-3: Core factual summary. Where the headline/context supports it, "
+            "include ONE specific, concrete number or statistic rather than vague words "
+            "like 'a lot' or 'significant'.\n"
             "   - Line 4: One short sentence of 'why this matters' — connect the news to a "
             "real, tangible impact on an ordinary reader's life (money, jobs, prices, "
             "safety, daily routine) wherever the headline reasonably supports it. If it "
-            "genuinely doesn't apply, give one line of background context instead so a "
-            "reader unfamiliar with the story understands its significance.\n"
+            "genuinely doesn't apply, give one line of background context instead.\n"
             "   - Line 5: Short engagement question for the audience.\n"
             "   - Line 6: A line starting exactly with 'IMG_QUERY:' followed by a short "
             "1-4 word English stock-photo search phrase describing the single most "
-            "visually common, easy-to-find subject of this news (e.g. 'stock market', "
-            "'smartphone', 'parliament building', 'cricket stadium', 'world map'). "
-            "Keep it SIMPLE and generic — prefer a widely-photographed everyday subject "
-            "over a specific/unusual combination of ideas, since it must match a stock "
-            "photo library search. CRITICAL: if this news is specifically about India "
-            "(an Indian state, city, election, institution, or company), you MUST include "
-            "the word 'Indian' or 'India' in the phrase (e.g. 'Indian election voting', "
-            "'Indian parliament', 'Indian stock market') — otherwise a generic word like "
-            "'vote' or 'flag' can pull an unrelated country's imagery (e.g. a US flag on "
-            "an Indian state election story), which looks like a factual error. Never "
-            "name a country in the query that isn't the one this story is actually "
-            "about.\n"
-            "3. ACCURACY IS CRITICAL: only use facts present in the headline itself. Never "
-            "invent, guess, or embellish numbers, causes, or details not given.\n"
-            "4. ABSOLUTELY DO NOT ADD ANY SYSTEM CODE TAGS AT THE END. Do NOT include any "
-            "hashtags anywhere in the post.\n"
-            "5. EMOJI LIMIT: Use EXACTLY ONE emoji in the entire post, only in the "
-            "opening Line 1 hook. Do NOT use any emoji anywhere else (not in the "
-            "summary, why-it-matters line, or engagement question).\n"
-            "6. Total Length of the post itself (excluding only the IMG_QUERY line): "
-            "aim for around 200 characters, and never exceed 240. Note that emoji count "
-            "as roughly DOUBLE weight on X/Twitter's real character limit, so leave real "
-            "margin — this is close to a hard platform limit of 280 counted X's way, "
-            "not a simple character count."
+            "visually common, easy-to-find subject of this news. Keep it SIMPLE and "
+            "generic. CRITICAL: if this news is specifically about India, you MUST "
+            "include the word 'Indian' or 'India' in the phrase — otherwise a generic "
+            "word can pull an unrelated country's imagery. Never name a country in the "
+            "query that isn't the one this story is actually about.\n"
+            "3. Then add TWO MORE lines for the WEBSITE ARTICLE version:\n"
+            "   - A line starting exactly with 'DEK:' followed by one factual one-sentence "
+            "subheading (max 20 words) summarizing the news, using only facts from the "
+            "headline/context snippet above.\n"
+            "   - A line starting exactly with 'BODY:' followed by 3 to 4 short news-style "
+            "paragraphs, each on its own line, written in a professional wire-service style "
+            "(like Reuters/Bloomberg/BBC). Use ONLY facts present in the headline and "
+            "context snippet given above — do NOT invent any numbers, quotes, names, dates, "
+            "or details that are not present in that information. If the given information "
+            "is limited, keep the paragraphs general/contextual (background, why it matters, "
+            "what to watch next) rather than fabricating specifics.\n"
+            "4. ACCURACY IS CRITICAL across both the post and the article: only use facts "
+            "present in the headline or context snippet. Never invent, guess, or embellish.\n"
+            "5. ABSOLUTELY DO NOT ADD ANY SYSTEM CODE TAGS. Do NOT include any hashtags "
+            "anywhere.\n"
+            "6. EMOJI LIMIT: Use EXACTLY ONE emoji in the entire post, only in Line 1. No "
+            "emoji anywhere else, including the website article.\n"
+            "7. Total Length of the SOCIAL POST part only (lines 1-5, excluding IMG_QUERY/"
+            "DEK/BODY): aim for around 180 characters, and never exceed 220 — this post "
+            "will also have a 'Read more' link appended later, so leave margin under X's "
+            "280 limit. Emoji count as roughly DOUBLE weight on X/Twitter's real character "
+            "limit."
         )
 
         skipped_this_headline = False
@@ -240,12 +321,30 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
                         break
 
                     image_query = None
+                    dek = None
+                    body_paragraphs = []
+                    in_body = False
                     post_lines = []
+
                     for line in raw_text.splitlines():
-                        if line.strip().upper().startswith("IMG_QUERY:"):
-                            image_query = line.split(":", 1)[1].strip()
-                        elif line.strip().startswith("#"):
-                            continue  # safety-net: drop any hashtag line even if Gemini adds one by mistake
+                        stripped = line.strip()
+                        upper = stripped.upper()
+                        if upper.startswith("IMG_QUERY:"):
+                            image_query = stripped.split(":", 1)[1].strip()
+                            in_body = False
+                        elif upper.startswith("DEK:"):
+                            dek = stripped.split(":", 1)[1].strip()
+                            in_body = False
+                        elif upper.startswith("BODY:"):
+                            in_body = True
+                            first = stripped.split(":", 1)[1].strip()
+                            if first:
+                                body_paragraphs.append(first)
+                        elif stripped.startswith("#"):
+                            continue
+                        elif in_body:
+                            if stripped:
+                                body_paragraphs.append(stripped)
                         else:
                             post_lines.append(line)
 
@@ -254,16 +353,20 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
                     def x_weighted_length(s):
                         return sum(2 if ord(ch) > 0x2FF else 1 for ch in s)
 
-                    MAX_LEN = 280
+                    MAX_LEN = 220
                     if x_weighted_length(text) > MAX_LEN:
-                        print(f"WARNING: Generated post was {x_weighted_length(text)} X-weighted chars — trimming to fit X's 280 limit.")
+                        print(f"WARNING: Generated post was {x_weighted_length(text)} X-weighted chars — trimming.")
                         while x_weighted_length(text) + 2 > MAX_LEN and len(text) > 0:
                             text = text[:-1]
                         text = text.rstrip() + "…"
 
+                    website_content = None
+                    if dek and body_paragraphs:
+                        website_content = {"dek": dek, "paragraphs": body_paragraphs}
+
                     if not custom_headline:
                         save_recent_headline(live_headline)
-                    return text, category, live_headline, image_query
+                    return text, category, live_headline, image_query, website_content
                 except Exception as e:
                     print(f"Gemini API ({model_name}) Attempt {attempt+1} Failed: {e}")
                     time.sleep(5 * (attempt + 1))
@@ -275,7 +378,7 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
         else:
             break
 
-    return None, category, live_headline, None
+    return None, category, live_headline, None, None
 
 
 CATEGORY_FALLBACK_IMAGES = {
@@ -286,6 +389,7 @@ CATEGORY_FALLBACK_IMAGES = {
     "stock market": ["stock market chart", "stock exchange", "business finance"],
     "economic": ["indian economy", "business finance city", "money currency"],
 }
+
 
 def _search_pexels(keyword):
     try:
@@ -300,6 +404,7 @@ def _search_pexels(keyword):
     except Exception as e:
         print(f"Pexels API Fetch Error ({keyword}): {e}")
     return None
+
 
 def get_dynamic_unique_image_url(news_text, category, image_query=None):
     candidates = []
@@ -328,14 +433,17 @@ def get_dynamic_unique_image_url(news_text, category, image_query=None):
     sig_rand = random.randint(100, 99999)
     return f"https://picsum.photos/seed/{sig_rand}/1080/1080"
 
+
 def _recolor_logo_white(logo):
     logo = logo.convert("RGBA")
     r, g, b, a = logo.split()
     white = Image.new("L", logo.size, 255)
     return Image.merge("RGBA", (white, white, white, a))
 
+
 CARD_LAYOUTS = ["bottom", "top", "bottom_accent"]
 ACCENT_LINE_COLORS = [(30, 58, 95), (91, 33, 33), (27, 67, 50), (55, 55, 60)]
+
 
 def create_news_card_overlay(base_img_url, headline_text, category_badge):
     try:
@@ -364,7 +472,7 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
             except Exception as e:
                 print(f"Logo Overlay Error: {e}")
         else:
-            print(f"WARNING: Logo not found at {LOGO_PATH} — check the file is committed to the repo root.")
+            print(f"WARNING: Logo not found at {LOGO_PATH}.")
 
         if layout == "top":
             bar_h = 260
@@ -384,7 +492,7 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
             for line in wrapped_lines:
                 draw.text((40, y_text), line, fill="#FFFFFF", font=title_font)
                 y_text += 44
-            draw.text((40, y_text + 6), f"WorldScopeX · {category_badge.title()}", fill="#9CA3AF", font=src_font)
+            draw.text((40, y_text + 6), f"WorldScopeX · {category_badge.title()} · worldscopex-hub.workers.dev", fill="#9CA3AF", font=src_font)
 
         else:
             bar_h = 260
@@ -408,7 +516,7 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
             for line in wrapped_lines:
                 draw.text((40, y_text), line, fill="#FFFFFF", font=title_font)
                 y_text += 44
-            draw.text((40, y_text + 6), f"WorldScopeX · {category_badge.title()}", fill="#9CA3AF", font=src_font)
+            draw.text((40, y_text + 6), f"WorldScopeX · {category_badge.title()} · worldscopex-hub.workers.dev", fill="#9CA3AF", font=src_font)
 
         output_path = "final_card.png"
         img.convert("RGB").save(output_path)
@@ -417,86 +525,172 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
         print(f"News Card Overlay Creation Error: {e}")
         return None
 
-def _verify_image_url(url):
+
+def commit_card_to_github(image_path):
+    """Commit the generated card image straight into this repo and return its
+    public raw.githubusercontent.com URL, avoiding any third-party image host."""
     try:
-        res = requests.get(url, timeout=10, stream=True)
-        content_type = res.headers.get("Content-Type", "")
-        if res.status_code == 200 and content_type.startswith("image/"):
-            return True
-        print(f"Image URL verification failed for {url} (status={res.status_code}, content-type={content_type})")
+        import subprocess
+        repo = os.getenv("GITHUB_REPOSITORY")
+        if not repo:
+            print("GITHUB_REPOSITORY env var missing — not running inside GitHub Actions?")
+            return None
+
+        os.makedirs("cards", exist_ok=True)
+        filename = f"cards/card_{int(time.time())}_{random.randint(1000, 9999)}.png"
+        os.replace(image_path, filename)
+
+        subprocess.run(["git", "config", "user.name", "news-bot"], check=True)
+        subprocess.run(["git", "config", "user.email", "news-bot@users.noreply.github.com"], check=True)
+        subprocess.run(["git", "add", filename], check=True)
+        subprocess.run(["git", "commit", "-m", f"Add card image {filename} [skip ci]"], check=True)
+        subprocess.run(["git", "push"], check=True)
+
+        branch = os.getenv("GITHUB_REF_NAME", "main")
+        raw_url = f"https://raw.githubusercontent.com/{repo}/{branch}/{filename}"
+        print(f"Card committed to GitHub — raw URL: {raw_url}")
+        return raw_url
     except Exception as e:
-        print(f"Image URL verification error for {url}: {e}")
-    return False
+        print(f"GitHub commit/push error: {e}")
+        return None
 
-def upload_image_to_freehost(image_path):
-    for attempt in range(2):
-        try:
-            url = "https://freeimage.host/api/1/upload"
-            with open(image_path, "rb") as file:
-                encoded_string = base64.b64encode(file.read()).decode('utf-8')
 
-            payload = {
-                "key": FREEIMAGE_API_KEY,
-                "action": "upload",
-                "source": encoded_string,
-                "format": "json"
-            }
-            res = requests.post(url, data=payload, timeout=30)
-            if res.status_code == 200:
-                data = res.json()
-                direct_url = data.get("image", {}).get("url")
-                if direct_url and _verify_image_url(direct_url):
-                    print(f"FreeImage Host Upload SUCCESS (verified): {direct_url}")
-                    return direct_url
-            else:
-                print(f"FreeImage Host bad status: {res.status_code} — {res.text[:200]}")
-        except Exception as e:
-            print(f"FreeImage Host Error (attempt {attempt+1}): {e}")
-            time.sleep(3)
+def _slugify(text):
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    text = re.sub(r"[^a-zA-Z0-9\s-]", "", text).strip().lower()
+    text = re.sub(r"[\s_-]+", "-", text)
+    return text[:80].strip("-") or "news-update"
 
-    for attempt in range(2):
-        try:
-            url = "https://tmpfiles.org/api/v1/upload"
-            with open(image_path, "rb") as file:
-                files = {"file": file}
-                res = requests.post(url, files=files, timeout=30)
-                if res.status_code == 200:
-                    file_url = res.json().get("data", {}).get("url")
-                    if file_url:
-                        direct_url = file_url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
-                        if _verify_image_url(direct_url):
-                            print(f"TmpFiles Upload SUCCESS (verified): {direct_url}")
-                            return direct_url
-                else:
-                    print(f"TmpFiles bad status: {res.status_code} — {res.text[:200]}")
-        except Exception as e:
-            print(f"TmpFiles Upload Error (attempt {attempt+1}): {e}")
-            time.sleep(3)
 
-    for attempt in range(2):
-        try:
-            url = "https://catbox.moe/user/api.php"
-            with open(image_path, "rb") as file:
-                files = {"fileToUpload": file}
-                data = {"reqtype": "fileupload"}
-                res = requests.post(url, files=files, data=data, timeout=30)
-                if res.status_code == 200 and res.text.strip().startswith("http"):
-                    direct_url = res.text.strip()
-                    if _verify_image_url(direct_url):
-                        print(f"Catbox Upload SUCCESS (verified): {direct_url}")
-                        return direct_url
-                else:
-                    print(f"Catbox bad status/response: {res.status_code} — {res.text[:200]}")
-        except Exception as e:
-            print(f"Catbox Upload Error (attempt {attempt+1}): {e}")
-            time.sleep(3)
+def build_website_article(website_content, headline, category, image_url, rss_link):
+    site_category = CATEGORY_MAP.get(category, "world")
+    slug = f"{_slugify(headline)}-{int(time.time())}"
 
-    print("All image hosts failed verification — will fall back to the raw photo URL instead of the branded card.")
+    paragraphs = website_content["paragraphs"] if website_content else [headline]
+    body = [{"type": "paragraph", "text": p} for p in paragraphs]
+
+    word_count = sum(len(p.split()) for p in paragraphs)
+    reading_minutes = max(1, round(word_count / 200))
+
+    now_iso = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    source_note = {
+        "label": "Google News aggregation",
+        "detail": headline,
+    }
+    if rss_link:
+        source_note["url"] = rss_link
+
+    dek = (website_content["dek"] if website_content else headline)[:200]
+
+    article = {
+        "slug": slug,
+        "category": site_category,
+        "headline": headline,
+        "dek": dek,
+        "author": {"name": "WorldScopeX Desk", "role": "Editorial Desk"},
+        "verificationStatus": "verified",
+        "publishedAt": now_iso,
+        "readingMinutes": reading_minutes,
+        "heroImage": image_url,
+        "imageAlt": headline,
+        "imageCredit": "Photo via Pexels",
+        "tags": [site_category],
+        "featured": False,
+        "trending": False,
+        "body": body,
+        "sources": [source_note],
+        "relatedStories": [],
+    }
+    return article, slug
+
+
+def _website_repo_full_name():
+    news_repo = os.getenv("GITHUB_REPOSITORY", "")
+    if "/" in news_repo:
+        owner = news_repo.split("/")[0]
+        return f"{owner}/worldscopex-hub"
     return None
 
-def send_direct_to_buffer(post_text, image_url):
-    if not BUFFER_ACCESS_TOKEN or not image_url:
-        print("Error: BUFFER_ACCESS_TOKEN or Image URL Missing!")
+
+def publish_article_to_website(article):
+    if not WEBSITE_REPO_TOKEN:
+        print("WEBSITE_REPO_TOKEN not set — skipping website publish (social post still goes out).")
+        return False
+
+    repo = _website_repo_full_name()
+    if not repo:
+        print("Could not determine website repo name — skipping website publish.")
+        return False
+
+    headers = {
+        "Authorization": f"token {WEBSITE_REPO_TOKEN}",
+        "Accept": "application/vnd.github+json",
+    }
+    api_url = f"https://api.github.com/repos/{repo}/contents/{WEBSITE_DATA_PATH}"
+
+    try:
+        res = requests.get(api_url, headers=headers, timeout=15)
+        if res.status_code != 200:
+            print(f"Website publish: could not fetch articles.ts ({res.status_code}): {res.text[:200]}")
+            return False
+
+        data = res.json()
+        sha = data["sha"]
+        content = base64.b64decode(data["content"]).decode("utf-8")
+
+        marker = "const articleRecords: Article[] = ["
+        idx = content.find(marker)
+        if idx == -1:
+            print("Website publish: could not find 'articleRecords' array in articles.ts")
+            return False
+
+        insert_pos = idx + len(marker)
+        rest = content[insert_pos:].lstrip()
+        needs_comma = not rest.startswith("]")
+
+        article_json = json.dumps(article, indent=2, ensure_ascii=False)
+        new_content = (
+            content[:insert_pos]
+            + "\n  " + article_json + ("," if needs_comma else "")
+            + "\n" + content[insert_pos:]
+        )
+
+        encoded = base64.b64encode(new_content.encode("utf-8")).decode("utf-8")
+        payload = {
+            "message": f"Add article: {article['headline'][:60]}",
+            "content": encoded,
+            "sha": sha,
+        }
+        put_res = requests.put(api_url, headers=headers, json=payload, timeout=20)
+        if put_res.status_code in (200, 201):
+            print(f"Website article published: {article['slug']}")
+            return True
+        else:
+            print(f"Website publish failed ({put_res.status_code}): {put_res.text[:300]}")
+            return False
+    except Exception as e:
+        print(f"Website publish error: {e}")
+        return False
+
+
+def shorten_url(long_url):
+    try:
+        res = requests.get(
+            "https://tinyurl.com/api-create.php",
+            params={"url": long_url},
+            timeout=10,
+        )
+        if res.status_code == 200 and res.text.strip().startswith("http"):
+            return res.text.strip()
+    except Exception as e:
+        print(f"URL shorten error: {e}")
+    return long_url
+
+
+def send_direct_to_buffer(post_text, image_url=None):
+    if not BUFFER_ACCESS_TOKEN:
+        print("Error: BUFFER_ACCESS_TOKEN Missing!")
         return
 
     url = "https://api.buffer.com/graphql"
@@ -524,7 +718,7 @@ def send_direct_to_buffer(post_text, image_url):
         service = ch.get("service")
 
         extra_metadata = ', metadata: { instagram: { type: post, shouldShareToFeed: true } }' if service.lower() == 'instagram' else ''
-        media_asset = f', assets: [{{ image: {{ url: "{image_url}" }} }}]'
+        media_asset = f', assets: [{{ image: {{ url: "{image_url}" }} }}]' if image_url else ''
 
         mutation = f"""
         mutation {{
@@ -546,11 +740,13 @@ def send_direct_to_buffer(post_text, image_url):
         post_res = requests.post(url, json={"query": mutation}, headers=headers)
         print(f"Direct Post Result for {service} ({ch_id}): {post_res.text}")
 
+
 if __name__ == "__main__":
     custom_headline = os.getenv("CUSTOM_HEADLINE", "").strip() or None
     custom_category = os.getenv("CUSTOM_CATEGORY", "").strip() or None
 
-    text, category, headline, image_query = generate_news_with_gemini(custom_headline, custom_category)
+    text, category, headline, image_query, website_content = generate_news_with_gemini(custom_headline, custom_category)
+
     if text and headline:
         print(f"Image search query from Gemini: {image_query}")
         base_img = get_dynamic_unique_image_url(text, category, image_query)
@@ -558,13 +754,33 @@ if __name__ == "__main__":
 
         final_image_url = None
         if card_file:
-            final_image_url = upload_image_to_freehost(card_file)
-
+            final_image_url = commit_card_to_github(card_file)
         if not final_image_url:
             final_image_url = base_img
 
-        print(f"Final Matching Card Image URL: {final_image_url}")
-        print(f"Post Text:\n{text}")
-        send_direct_to_buffer(text, final_image_url)
+        print(f"Final Card Image URL: {final_image_url}")
+
+        # Website publish is ADDITIVE and non-blocking: any failure here is
+        # caught and logged, and can NEVER stop or affect social posting below.
+        website_url = None
+        try:
+            if website_content:
+                article, slug = build_website_article(website_content, headline, category, final_image_url, None)
+                if publish_article_to_website(article):
+                    website_url = ARTICLE_URL_PATTERN.format(slug=slug)
+            else:
+                print("No website content generated for this headline — skipping website publish.")
+        except Exception as e:
+            print(f"Website publish step failed (social posting is unaffected): {e}")
+
+        final_post_text = text
+        if website_url:
+            short_url = shorten_url(website_url)
+            final_post_text = f"{text}\n\nRead more: {short_url}"
+
+        print(f"Post Text:\n{final_post_text}")
+        # Posting the link only (no attached image) so platforms auto-unfurl
+        # a preview card from the website page instead.
+        send_direct_to_buffer(final_post_text, image_url=None)
     else:
         print("Skipping execution: Live RSS news fetch or Gemini failed.")
