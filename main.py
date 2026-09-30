@@ -525,7 +525,7 @@ def create_news_card_overlay(base_img_url, headline_text, category_badge):
             for line in wrapped_lines:
                 draw.text((40, y_text), line, fill="#FFFFFF", font=title_font)
                 y_text += 44
-            draw.text((40, y_text + 6), f"WorldScopeX · {category_badge.title()} · worldscopex-hub.workers.dev", fill="#9CA3AF", font=src_font)
+            draw.text((40, y_text + 6), f"WorldScopeX · {category_badge.title()}", fill="#9CA3AF", font=src_font)
 
         output_path = "final_card.png"
         img.convert("RGB").save(output_path)
