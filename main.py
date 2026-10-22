@@ -23,10 +23,14 @@ LOGO_PATH = "logo.png"
 FONT_BOLD_PATH = "fonts/Roboto-Bold.ttf"
 FONT_REGULAR_PATH = "fonts/Roboto-Regular.ttf"
 WEBSITE_DATA_PATH = "src/data/articles.ts"
-ARTICLE_URL_PATTERN = "https://worldscopex-hub.worldscopex.workers.dev/article/{slug}"
 
 HISTORY_FILE = "posted_history.json"
 HISTORY_MAX = 40
+
+# Threads allows 500 chars, X allows 280 (weighted). We keep a longer version
+# for Threads/Instagram and a shorter one for X, so nothing is cut mid-sentence.
+FULL_LIMIT = 450
+X_LIMIT = 275
 
 CATEGORY_MAP = {
     "india": "india",
@@ -36,6 +40,40 @@ CATEGORY_MAP = {
     "stock market": "economy",
     "economic": "economy",
 }
+
+
+def x_weighted_length(s):
+    return sum(2 if ord(ch) > 0x2FF else 1 for ch in s)
+
+
+def _trim_post(text, limit, measure):
+    """Shorten a post to fit `limit` WITHOUT cutting sentences in half where
+    possible: first drop trailing lines (keeping at least 2), then the hashtag
+    line, and only as a last resort cut at a word boundary."""
+    lines = [l.rstrip() for l in text.split("\n") if l.strip()]
+    hashtag_line = ""
+    if lines and lines[-1].strip().startswith("#"):
+        hashtag_line = lines.pop().strip()
+    body_lines = lines
+
+    def total():
+        parts = body_lines + ([hashtag_line] if hashtag_line else [])
+        return measure("\n".join(parts))
+
+    if total() <= limit:
+        return "\n".join(body_lines + ([hashtag_line] if hashtag_line else []))
+
+    while total() > limit and len(body_lines) > 2:
+        body_lines.pop()
+    if total() > limit and hashtag_line:
+        hashtag_line = ""
+    if total() <= limit:
+        return "\n".join(body_lines + ([hashtag_line] if hashtag_line else []))
+
+    words = "\n".join(body_lines).split(" ")
+    while words and measure(" ".join(words) + "…") > limit:
+        words.pop()
+    return " ".join(words).rstrip(" ,;:-\n") + "…"
 
 
 def load_recent_headlines():
@@ -255,26 +293,28 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
             "1. Language: Professional English for a global audience, with special emphasis "
             "on relevance to Indian readers — where the headline supports it, note the "
             "impact on India (markets, policy, jobs, prices) without inventing anything not "
-            "in the headline or context snippet.\n"
-            "2. Structure of the SOCIAL POST (this part only, lines 1-6). Write in the "
-            "restrained, authoritative register of a top-tier wire service (Reuters/"
-            "Bloomberg/AP) — precise, unembellished, no hype, no clickbait phrasing:\n"
-            "   - Line 1: A factual, authoritative opening statement leading with the "
-            "core news fact (who/what happened), the way a wire-service alert reads. "
-            "At most ONE understated emoji is allowed if it genuinely fits (e.g. 📉 for "
-            "markets, ⚖️ for policy/legal) — prefer NO emoji at all over a forced one. "
-            "Do not use ALL-CAPS hype words, exclamation marks, or dramatic phrasing.\n"
-            "   - Line 2-3: Core factual summary. Where the headline/context supports it, "
-            "include ONE specific, concrete number or statistic rather than vague words "
-            "like 'a lot' or 'significant'.\n"
-            "   - Line 4: One short sentence of context/analysis — why this matters, its "
-            "real-world implication (markets, policy, jobs, prices, safety), stated as "
-            "measured analysis rather than a casual aside. If it genuinely doesn't apply, "
-            "give one line of background context instead.\n"
-            "   - Line 5: A brief forward-looking or 'what to watch next' closing "
-            "statement, in the same wire-service register — NOT a casual engagement "
-            "question aimed at the reader.\n"
-            "   - Line 6: A line starting exactly with 'IMG_QUERY:' followed by a short "
+            "in the headline or context.\n"
+            "2. Structure of the SOCIAL POST (this part only). Write in a professional, "
+            "authoritative register like a top-tier wire service (Reuters/Bloomberg/AP) — "
+            "precise, credible, no clickbait — but still engaging for social media, not "
+            "sterile or robotic. EACH line must be exactly ONE short sentence, and the "
+            "character limits below are HARD limits:\n"
+            "   - Line 1 (max 100 characters): opening statement with the core news fact "
+            "(who/what happened). Include ONE light, relevant emoji at the start most of "
+            "the time (e.g. 📉 markets, ⚖️ policy/legal, 🌍 world news) — occasionally "
+            "skip it for variety. No ALL-CAPS hype words, no multiple exclamation marks.\n"
+            "   - Line 2 (max 110 characters): the key supporting fact. Where the "
+            "headline/context supports it, include ONE specific number or statistic "
+            "rather than vague words like 'a lot' or 'significant'.\n"
+            "   - Line 3 (max 90 characters): why it matters — the real-world implication "
+            "(markets, policy, jobs, prices, safety) as measured analysis, or brief "
+            "background context if no implication applies.\n"
+            "   - Line 4 (max 70 characters): EITHER a 'what to watch next' statement OR, "
+            "when the story genuinely invites it (a debate, an open question, real "
+            "trade-offs), a short genuine question for readers. Vary naturally; do not "
+            "force a question onto a story that does not call for one.\n"
+            "   - Hashtag line (optional, see rule 5): placed right after Line 4.\n"
+            "   - Then a line starting exactly with 'IMG_QUERY:' followed by a short "
             "1-4 word English stock-photo search phrase describing the single most "
             "visually common, easy-to-find subject of this news. Keep it SIMPLE and "
             "generic. CRITICAL: if this news is specifically about India, you MUST "
@@ -284,7 +324,7 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
             "3. Then add TWO MORE lines for the WEBSITE ARTICLE version:\n"
             "   - A line starting exactly with 'DEK:' followed by one factual one-sentence "
             "subheading (max 20 words) summarizing the news, using only facts from the "
-            "headline/context snippet above.\n"
+            "headline/context above.\n"
             "   - A line starting exactly with 'BODY:' followed by 4 to 7 news-style "
             "paragraphs (use the FULL range — 6 to 7 paragraphs — when the FULL ARTICLE "
             "CONTEXT above gives enough real material; use fewer, around 4, only when "
@@ -292,24 +332,24 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
             "polished, analytical style of a premium wire service (Reuters/Bloomberg/BBC) "
             "— lead paragraph with the core fact, followed by supporting detail, context/"
             "background, stakeholder or market implications, and a forward-looking closing "
-            "paragraph. Use ONLY facts present in the headline and context snippet given "
-            "above — do NOT invent any numbers, quotes, names, dates, or details that are "
-            "not present in that information. If the given information is limited, keep "
-            "the paragraphs general/contextual (background, why it matters, what to watch "
-            "next) rather than fabricating specifics — depth should come from structure "
-            "and analysis, never from invented facts.\n"
+            "paragraph. Use ONLY facts present in the headline and context given above — "
+            "do NOT invent any numbers, quotes, names, dates, or details that are not "
+            "present in that information. If the given information is limited, keep the "
+            "paragraphs general/contextual (background, why it matters, what to watch next) "
+            "rather than fabricating specifics — depth should come from structure and "
+            "analysis, never from invented facts.\n"
             "4. ACCURACY IS CRITICAL across both the post and the article: only use facts "
-            "present in the headline or context snippet. Never invent, guess, or embellish.\n"
-            "5. ABSOLUTELY DO NOT ADD ANY SYSTEM CODE TAGS. Do NOT include any hashtags "
-            "anywhere.\n"
-            "6. EMOJI: At most ONE understated emoji total, only in Line 1, and only if it "
-            "genuinely fits — a plain factual Line 1 with no emoji is equally acceptable "
-            "and often more appropriate for a serious wire-service tone. No emoji anywhere "
-            "else, including the website article.\n"
-            "7. Total Length of the SOCIAL POST part only (lines 1-5, excluding IMG_QUERY/"
-            "DEK/BODY): aim for around 220-260 characters, and never exceed 275 — this "
-            "leaves safe margin under X's 280 limit. Emoji count as roughly DOUBLE weight "
-            "on X/Twitter's real character limit."
+            "present in the headline or context. Never invent, guess, or embellish.\n"
+            "5. HASHTAGS: In roughly 7 out of 10 posts, add ONE line of 1-2 relevant, "
+            "specific hashtags (e.g. #IndiaNews #Markets), max 30 characters, right after "
+            "Line 4. In the other roughly 3 out of 10 posts, include NO hashtags at all, "
+            "for natural variety. Never use more than 2 hashtags. NO hashtags and NO emoji "
+            "anywhere in the DEK or BODY. Do not add any system code tags.\n"
+            "6. EMOJI: At most ONE emoji in the social post, only in Line 1. No emoji "
+            "anywhere else, including the website article.\n"
+            "7. Total length of the SOCIAL POST (Lines 1-4 plus the hashtag line if "
+            "present, excluding IMG_QUERY/DEK/BODY) must stay under 400 characters. Respect "
+            "every per-line limit above; short, tight sentences are better than long ones."
         )
 
         skipped_this_headline = False
@@ -347,27 +387,18 @@ def generate_news_with_gemini(custom_headline=None, custom_category=None):
                         elif upper.startswith("BODY:"):
                             in_body = True
                             first = stripped.split(":", 1)[1].strip()
-                            if first:
+                            if first and not first.startswith("#"):
                                 body_paragraphs.append(first)
-                        elif stripped.startswith("#"):
-                            continue
                         elif in_body:
-                            if stripped:
+                            if stripped and not stripped.startswith("#"):
                                 body_paragraphs.append(stripped)
                         else:
                             post_lines.append(line)
 
                     text = "\n".join(post_lines).strip()
-
-                    def x_weighted_length(s):
-                        return sum(2 if ord(ch) > 0x2FF else 1 for ch in s)
-
-                    MAX_LEN = 275
-                    if x_weighted_length(text) > MAX_LEN:
-                        print(f"WARNING: Generated post was {x_weighted_length(text)} X-weighted chars — trimming.")
-                        while x_weighted_length(text) + 2 > MAX_LEN and len(text) > 0:
-                            text = text[:-1]
-                        text = text.rstrip() + "…"
+                    if len(text) > FULL_LIMIT:
+                        print(f"WARNING: Generated post was {len(text)} chars — trimming to {FULL_LIMIT}.")
+                        text = _trim_post(text, FULL_LIMIT, len)
 
                     website_content = None
                     if dek and body_paragraphs:
@@ -648,13 +679,17 @@ def publish_article_to_website(article):
         sha = data["sha"]
         content = base64.b64decode(data["content"]).decode("utf-8")
 
-        marker = "const articleRecords: Article[] = ["
-        idx = content.find(marker)
-        if idx == -1:
+        match = re.search(r"const\s+articleRecords\s*(?::[^=]+)?=\s*\[", content)
+        if not match:
+            pos = content.find("articleRecords")
             print("Website publish: could not find 'articleRecords' array in articles.ts")
+            if pos != -1:
+                print("Nearby text:", repr(content[max(0, pos - 80):pos + 160]))
+            else:
+                print("The word 'articleRecords' does not appear in articles.ts at all (file may have been restructured).")
             return False
 
-        insert_pos = idx + len(marker)
+        insert_pos = match.end()
         rest = content[insert_pos:].lstrip()
         needs_comma = not rest.startswith("]")
 
@@ -683,10 +718,12 @@ def publish_article_to_website(article):
         return False
 
 
-def send_direct_to_buffer(post_text, image_url=None):
+def send_direct_to_buffer(post_text, image_url=None, twitter_text=None):
+    """Posts to every connected Buffer channel. Threads/Instagram get the fuller
+    text; X/Twitter gets the shorter `twitter_text` (if given)."""
     if not BUFFER_ACCESS_TOKEN:
-        print("Error: BUFFER_ACCESS_TOKEN Missing!")
-        return
+        print("ERROR: BUFFER_ACCESS_TOKEN is missing — add it in GitHub Secrets.")
+        raise SystemExit(1)
 
     url = "https://api.buffer.com/graphql"
     headers = {
@@ -695,10 +732,16 @@ def send_direct_to_buffer(post_text, image_url=None):
     }
 
     acc_res = requests.post(url, json={"query": "query GetAccount { account { organizations { id } } }"}, headers=headers)
-    orgs = acc_res.json().get("data", {}).get("account", {}).get("organizations", [])
+    print(f"Buffer account response ({acc_res.status_code}): {acc_res.text[:400]}")
+    try:
+        acc_json = acc_res.json()
+    except Exception:
+        acc_json = {}
+    orgs = ((acc_json.get("data") or {}).get("account") or {}).get("organizations") or []
     if not orgs:
-        print("Error: No Buffer Organization Found!")
-        return
+        print("ERROR: No Buffer Organization found — the access token is probably expired/invalid, "
+              "or the Buffer account changed. Create a new token and update BUFFER_ACCESS_TOKEN.")
+        raise SystemExit(1)
     org_id = orgs[0].get("id")
 
     ch_res = requests.post(
@@ -706,11 +749,22 @@ def send_direct_to_buffer(post_text, image_url=None):
         json={"query": "query GetChannels($input: ChannelsInput!) { channels(input: $input) { id service } }", "variables": {"input": {"organizationId": org_id}}},
         headers=headers
     )
-    channels = ch_res.json().get("data", {}).get("channels", [])
+    try:
+        ch_json = ch_res.json()
+    except Exception:
+        ch_json = {}
+    channels = (ch_json.get("data") or {}).get("channels") or []
+    if not channels:
+        print(f"ERROR: No Buffer channels found. Response: {ch_res.text[:300]}")
+        raise SystemExit(1)
 
     for ch in channels:
         ch_id = ch.get("id")
-        service = ch.get("service")
+        service = ch.get("service") or ""
+
+        this_text = post_text
+        if twitter_text and service.lower() in ("twitter", "x"):
+            this_text = twitter_text
 
         extra_metadata = ', metadata: { instagram: { type: post, shouldShareToFeed: true } }' if service.lower() == 'instagram' else ''
         media_asset = f', assets: [{{ image: {{ url: "{image_url}" }} }}]' if image_url else ''
@@ -719,7 +773,7 @@ def send_direct_to_buffer(post_text, image_url=None):
         mutation {{
             createPost(input: {{
                 channelId: "{ch_id}",
-                text: {requests.compat.json.dumps(post_text)},
+                text: {json.dumps(this_text)},
                 schedulingType: automatic,
                 mode: shareNow{extra_metadata}{media_asset}
             }}) {{
@@ -734,6 +788,13 @@ def send_direct_to_buffer(post_text, image_url=None):
         """
         post_res = requests.post(url, json={"query": mutation}, headers=headers)
         print(f"Direct Post Result for {service} ({ch_id}): {post_res.text}")
+
+
+FOLLOW_LINES = [
+    "Follow for daily India & world news.",
+    "Follow for more updates like this.",
+    "Follow for daily news and updates.",
+]
 
 
 if __name__ == "__main__":
@@ -757,11 +818,8 @@ if __name__ == "__main__":
 
         # Website publish is ADDITIVE and non-blocking: any failure here is
         # caught and logged, and can NEVER stop or affect social posting below.
-        # NOTE: no website link is appended to the social caption — X flagged/
-        # restricted this account previously when repeated shortened-link posts
-        # went out at high frequency. Social posts carry the branded card image
-        # only; the website article still gets published in the background so
-        # the site keeps growing for when links are reintroduced later.
+        # No website link is added to the social caption (Twitter restricted the
+        # account earlier after repeated shortened-link posts).
         try:
             if website_content:
                 article, slug = build_website_article(website_content, headline, category, final_image_url, None)
@@ -771,9 +829,20 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"Website publish step failed (social posting is unaffected): {e}")
 
-        final_post_text = text
+        # Fuller text for Threads/Instagram, shorter (sentence-safe) text for X.
+        text_full = text
+        text_x = _trim_post(text, X_LIMIT, x_weighted_length)
 
-        print(f"Post Text:\n{final_post_text}")
-        send_direct_to_buffer(final_post_text, image_url=final_image_url)
+        # Occasional follow prompt (about 1 in 6 posts), only where it fits.
+        if random.random() < 0.17:
+            cta = random.choice(FOLLOW_LINES)
+            if len(text_full) + 2 + len(cta) <= 480:
+                text_full = f"{text_full}\n\n{cta}"
+            if x_weighted_length(text_x) + 2 + x_weighted_length(cta) <= 278:
+                text_x = f"{text_x}\n\n{cta}"
+
+        print(f"Post Text (Threads/Instagram):\n{text_full}")
+        print(f"Post Text (X/Twitter):\n{text_x}")
+        send_direct_to_buffer(text_full, image_url=final_image_url, twitter_text=text_x)
     else:
         print("Skipping execution: Live RSS news fetch or Gemini failed.")
