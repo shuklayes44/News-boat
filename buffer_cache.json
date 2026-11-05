@@ -1,0 +1,16 @@
+{
+  "requested": [
+    "threads",
+    "twitter"
+  ],
+  "channels": [
+    {
+      "id": "6a9fd9bdcd8b9c702c2b89aa",
+      "service": "threads"
+    },
+    {
+      "id": "6a916901ccaf649a67323d41",
+      "service": "twitter"
+    }
+  ]
+}
