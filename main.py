@@ -28,7 +28,7 @@ HISTORY_FILE = "posted_history.json"
 HISTORY_MAX = 40
 
 # Threads allows 500 chars, X allows 280 (weighted). We keep a longer version
-# for Threads/Instagram and a shorter one for X, so nothing is cut mid-sentence.
+# for Threads and a shorter one for X, so nothing is cut mid-sentence.
 FULL_LIMIT = 450
 X_LIMIT = 275
 
@@ -718,76 +718,165 @@ def publish_article_to_website(article):
         return False
 
 
-def send_direct_to_buffer(post_text, image_url=None, twitter_text=None):
-    """Posts to every connected Buffer channel. Threads/Instagram get the fuller
-    text; X/Twitter gets the shorter `twitter_text` (if given)."""
-    if not BUFFER_ACCESS_TOKEN:
-        print("ERROR: BUFFER_ACCESS_TOKEN is missing — add it in GitHub Secrets.")
-        raise SystemExit(1)
+# Only these Buffer channels get posts. Instagram is skipped for now because
+# Buffer's Free plan API limits are small (100 requests/24h, 3,000/30 days).
+BUFFER_POST_SERVICES = ["threads", "twitter"]
+BUFFER_CACHE_FILE = "buffer_cache.json"
+BUFFER_URL = "https://api.buffer.com/graphql"
 
-    url = "https://api.buffer.com/graphql"
-    headers = {
-        "Authorization": f"Bearer {BUFFER_ACCESS_TOKEN}",
-        "Content-Type": "application/json"
-    }
 
-    acc_res = requests.post(url, json={"query": "query GetAccount { account { organizations { id } } }"}, headers=headers)
+def _print_rate_headers(res):
+    info = {k: v for k, v in res.headers.items()
+            if k.lower().startswith("ratelimit") or k.lower() == "retry-after"}
+    if info:
+        print(f"Buffer rate-limit headers: {info}")
+
+
+def _load_buffer_cache():
+    try:
+        if os.path.exists(BUFFER_CACHE_FILE):
+            with open(BUFFER_CACHE_FILE, "r") as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"Buffer cache load error: {e}")
+    return None
+
+
+def _save_buffer_cache(requested, channels):
+    try:
+        import subprocess
+        with open(BUFFER_CACHE_FILE, "w") as f:
+            json.dump({"requested": requested, "channels": channels}, f, indent=2)
+        subprocess.run(["git", "config", "user.name", "news-bot"], check=True)
+        subprocess.run(["git", "config", "user.email", "news-bot@users.noreply.github.com"], check=True)
+        subprocess.run(["git", "add", BUFFER_CACHE_FILE], check=True)
+        subprocess.run(["git", "commit", "-m", "Update Buffer channel cache [skip ci]"], check=True)
+        subprocess.run(["git", "push"], check=True)
+        print("Buffer channel cache saved to repo.")
+    except Exception as e:
+        print(f"Buffer cache save error (non-fatal): {e}")
+
+
+def _get_buffer_channels(headers, force_refresh=False):
+    """Returns (channels, from_cache). Uses the cached channel list when possible
+    (0 API requests); otherwise looks the channels up (2 requests) and caches them,
+    so a normal run only spends one Buffer request per channel."""
+    wanted = [s.lower() for s in BUFFER_POST_SERVICES]
+
+    if not force_refresh:
+        cache = _load_buffer_cache()
+        if cache and cache.get("requested") == wanted and cache.get("channels"):
+            print(f"Using cached Buffer channels: {[c.get('service') for c in cache['channels']]}")
+            return cache["channels"], True
+
+    acc_res = requests.post(BUFFER_URL, json={"query": "query GetAccount { account { organizations { id } } }"}, headers=headers)
     print(f"Buffer account response ({acc_res.status_code}): {acc_res.text[:400]}")
+    _print_rate_headers(acc_res)
     try:
         acc_json = acc_res.json()
     except Exception:
         acc_json = {}
     orgs = ((acc_json.get("data") or {}).get("account") or {}).get("organizations") or []
     if not orgs:
-        print("ERROR: No Buffer Organization found — the access token is probably expired/invalid, "
-              "or the Buffer account changed. Create a new token and update BUFFER_ACCESS_TOKEN.")
+        print("ERROR: No Buffer Organization found. If the response above says RATE_LIMIT_EXCEEDED, "
+              "Buffer's request limit is used up (wait for the window to reset). Otherwise the token "
+              "may be invalid - create a new one and update BUFFER_ACCESS_TOKEN.")
         raise SystemExit(1)
     org_id = orgs[0].get("id")
 
     ch_res = requests.post(
-        url,
+        BUFFER_URL,
         json={"query": "query GetChannels($input: ChannelsInput!) { channels(input: $input) { id service } }", "variables": {"input": {"organizationId": org_id}}},
         headers=headers
     )
+    _print_rate_headers(ch_res)
     try:
         ch_json = ch_res.json()
     except Exception:
         ch_json = {}
-    channels = (ch_json.get("data") or {}).get("channels") or []
-    if not channels:
-        print(f"ERROR: No Buffer channels found. Response: {ch_res.text[:300]}")
+    all_channels = (ch_json.get("data") or {}).get("channels") or []
+    print(f"Buffer channels found: {[c.get('service') for c in all_channels]}")
+    selected = [{"id": c.get("id"), "service": c.get("service")}
+                for c in all_channels if (c.get("service") or "").lower() in wanted]
+    if not selected:
+        print(f"ERROR: None of the wanted channels {wanted} were found. Response: {ch_res.text[:300]}")
         raise SystemExit(1)
 
-    for ch in channels:
-        ch_id = ch.get("id")
-        service = ch.get("service") or ""
+    _save_buffer_cache(wanted, selected)
+    return selected, False
 
-        this_text = post_text
-        if twitter_text and service.lower() in ("twitter", "x"):
-            this_text = twitter_text
 
-        extra_metadata = ', metadata: { instagram: { type: post, shouldShareToFeed: true } }' if service.lower() == 'instagram' else ''
-        media_asset = f', assets: [{{ image: {{ url: "{image_url}" }} }}]' if image_url else ''
+def send_direct_to_buffer(post_text, image_url=None, twitter_text=None):
+    """Posts to the channels in BUFFER_POST_SERVICES. Threads gets the fuller text;
+    X/Twitter gets the shorter `twitter_text` (if given). Exits with an error (so the
+    GitHub run turns red and sends an email) if nothing could be posted."""
+    if not BUFFER_ACCESS_TOKEN:
+        print("ERROR: BUFFER_ACCESS_TOKEN is missing - add it in GitHub Secrets.")
+        raise SystemExit(1)
 
-        mutation = f"""
-        mutation {{
-            createPost(input: {{
-                channelId: "{ch_id}",
-                text: {json.dumps(this_text)},
-                schedulingType: automatic,
-                mode: shareNow{extra_metadata}{media_asset}
-            }}) {{
-                ... on PostActionSuccess {{
-                    post {{ id status }}
-                }}
-                ... on MutationError {{
-                    message
+    headers = {
+        "Authorization": f"Bearer {BUFFER_ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    def _post_to_channels(channels):
+        ok_count = 0
+        for ch in channels:
+            ch_id = ch.get("id")
+            service = ch.get("service") or ""
+
+            this_text = post_text
+            if twitter_text and service.lower() in ("twitter", "x"):
+                this_text = twitter_text
+
+            extra_metadata = ', metadata: { instagram: { type: post, shouldShareToFeed: true } }' if service.lower() == 'instagram' else ''
+            media_asset = f', assets: [{{ image: {{ url: "{image_url}" }} }}]' if image_url else ''
+
+            mutation = f"""
+            mutation {{
+                createPost(input: {{
+                    channelId: "{ch_id}",
+                    text: {json.dumps(this_text)},
+                    schedulingType: automatic,
+                    mode: shareNow{extra_metadata}{media_asset}
+                }}) {{
+                    ... on PostActionSuccess {{
+                        post {{ id status }}
+                    }}
+                    ... on MutationError {{
+                        message
+                    }}
                 }}
             }}
-        }}
-        """
-        post_res = requests.post(url, json={"query": mutation}, headers=headers)
-        print(f"Direct Post Result for {service} ({ch_id}): {post_res.text}")
+            """
+            post_res = requests.post(BUFFER_URL, json={"query": mutation}, headers=headers)
+            print(f"Direct Post Result for {service} ({ch_id}): {post_res.text}")
+            _print_rate_headers(post_res)
+
+            if post_res.status_code == 429:
+                print("ERROR: Buffer rate limit hit while posting - stopping.")
+                raise SystemExit(1)
+
+            try:
+                js = post_res.json()
+            except Exception:
+                js = {}
+            created = ((js.get("data") or {}).get("createPost") or {})
+            if created.get("post"):
+                ok_count += 1
+        return ok_count
+
+    channels, from_cache = _get_buffer_channels(headers)
+    ok = _post_to_channels(channels)
+
+    if ok == 0 and from_cache:
+        print("Posting failed with the cached channel list - refreshing it and retrying once.")
+        channels, _ = _get_buffer_channels(headers, force_refresh=True)
+        ok = _post_to_channels(channels)
+
+    if ok == 0:
+        print("ERROR: Nothing was posted to Buffer.")
+        raise SystemExit(1)
 
 
 FOLLOW_LINES = [
@@ -829,7 +918,7 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"Website publish step failed (social posting is unaffected): {e}")
 
-        # Fuller text for Threads/Instagram, shorter (sentence-safe) text for X.
+        # Fuller text for Threads, shorter (sentence-safe) text for X.
         text_full = text
         text_x = _trim_post(text, X_LIMIT, x_weighted_length)
 
@@ -841,7 +930,7 @@ if __name__ == "__main__":
             if x_weighted_length(text_x) + 2 + x_weighted_length(cta) <= 278:
                 text_x = f"{text_x}\n\n{cta}"
 
-        print(f"Post Text (Threads/Instagram):\n{text_full}")
+        print(f"Post Text (Threads):\n{text_full}")
         print(f"Post Text (X/Twitter):\n{text_x}")
         send_direct_to_buffer(text_full, image_url=final_image_url, twitter_text=text_x)
     else:
